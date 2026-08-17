@@ -2,21 +2,26 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
-    branches: [main, staging]
+    branches: [main]
     paths:
       - 'workers/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/workers-deploy.yml'
   pull_request:
-    branches: [main, staging]
+    branches: [main]
     paths:
       - 'workers/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/workers-deploy.yml'
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        type: choice
-        options: [staging, production]
+
+concurrency:
+  group: workers-production
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -28,40 +33,17 @@ jobs:
           version: 10.13.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter=cepatusaha-workers typecheck
       - run: pnpm --filter=cepatusaha-workers test
       - run: pnpm --filter=cepatusaha-workers build
 
-  deploy-staging:
-    needs: test
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.13.1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --env staging
-          workingDirectory: ./workers
 
   deploy-production:
     needs: test
-    if: |
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -71,11 +53,12 @@ jobs:
           version: 10.13.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - uses: cloudflare/wrangler-action@v3
         with:
+          wranglerVersion: 4.123.0
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env production

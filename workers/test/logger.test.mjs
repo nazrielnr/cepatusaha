@@ -5,4 +5,4 @@ const logger = readFileSync(new URL('../src/shared/logger.ts', import.meta.url),
 assert.match(logger, /export function debugLog/)
 assert.match(logger, /export function warnLog/)
 assert.match(logger, /export function errorLog/)
-assert.match(logger, /level === 'debug' && env\?\.NODE_ENV !== 'development'/)
+assert.match(logger, /level === 'debug' && env\?\.DEBUG_LOGS !== 'true'/)

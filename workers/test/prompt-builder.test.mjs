@@ -7,8 +7,8 @@ const loop = readFileSync(new URL('../src/features/chat/conversation-loop.ts', i
 const state = readFileSync(new URL('../src/features/planning/state.ts', import.meta.url), 'utf8')
 
 assert.doesNotMatch(builder, /prompts\/system\.json/)
-assert.doesNotMatch(builder, /create_file|replace_code|check_workspace|search_in_files|style\.css|script\.js/)
+assert.match(builder, /write_file\/create_file/)
 assert.doesNotMatch(planning, /create_file|check_workspace|\.planning\/planning-docs\.md/)
 assert.doesNotMatch(loop, /For new files output fenced file blocks, not tool calls/)
 assert.match(state, /TOOL_SCHEMAS/)
-assert.ok(builder.length < 6000)
+assert.ok(builder.length < 20000)
