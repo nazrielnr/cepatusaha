@@ -56,6 +56,8 @@ supabase/.temp/
 # Cloudflare Workers
 .wrangler/
 .dev.vars
+.production.secrets
+workers/.production.secrets
 
 # Generated artifacts
 **/tmp-ts/
