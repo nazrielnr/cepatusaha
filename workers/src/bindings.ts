@@ -1,0 +1,25 @@
+export type Bindings = {
+  CLERK_SECRET_KEY: string;
+  DATABASE_URL: string;
+  AI_BASE_URL: string;
+  AI_API_KEY: string;
+  AI_DEFAULT_MODEL: string;
+  AI_VISION_MODEL?: string;
+  AI_IMAGE_MODE?: 'tool' | 'native';
+  CONVERSATION_LOOP_ENABLED?: string;
+  MAX_LOOP_ITERATIONS?: string;
+  LOOP_ITERATION_TIMEOUT?: string;
+  RATE_LIMIT_ENABLED?: string;
+  RATE_LIMIT_BASE_DELAY_MS?: string;
+  RATE_LIMIT_MAX_DELAY_MS?: string;
+  RATE_LIMIT_STRATEGY?: string;
+  RATE_LIMIT_BACKOFF_MULTIPLIER?: string;
+  RATE_LIMIT_RETRY_ON_429?: string;
+  RATE_LIMIT_MAX_RETRIES_429?: string;
+  NODE_ENV?: string;
+  DEBUG_LOGS?: string;
+  FRONTEND_URL?: string;
+  ASSETS_BUCKET: R2Bucket;
+  ASSETS_PUBLIC_URL?: string;
+  REALTIME_ROOM: DurableObjectNamespace;
+};

@@ -1,0 +1,9 @@
+# Backend migrated to Cloudflare Workers - ignore all API files
+# This prevents Vercel from treating them as serverless functions
+api/**/*.ts
+api/**/*.js
+api/**/*.md
+api/handlers/
+api/lib/
+api/types/
+api/test/

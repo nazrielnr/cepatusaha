@@ -1,0 +1,12 @@
+# CepatUsaha - AI Website Builder
+# https://cepatusaha.ai
+
+User-agent: *
+Allow: /
+
+# Disallow admin and API routes
+Disallow: /api/
+Disallow: /admin/
+
+# Sitemap
+Sitemap: https://cepatusaha.ai/sitemap.xml

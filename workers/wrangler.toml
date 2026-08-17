@@ -1,0 +1,75 @@
+name = "cepatusaha-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "pnpm run build"
+
+[observability]
+enabled = true
+
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "cepatusaha-assets-dev"
+
+[[durable_objects.bindings]]
+name = "REALTIME_ROOM"
+class_name = "RealtimeRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RealtimeRoom"]
+
+[dev]
+port = 8787
+local_protocol = "http"
+
+[env.development]
+name = "cepatusaha-api-dev"
+
+[env.development.vars]
+NODE_ENV = "development"
+FRONTEND_URL = "http://localhost:5173"
+CONVERSATION_LOOP_ENABLED = "true"
+MAX_LOOP_ITERATIONS = "10"
+LOOP_ITERATION_TIMEOUT = "120000"
+
+[[env.development.r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "cepatusaha-assets-dev"
+
+[env.staging]
+name = "cepatusaha-api-staging"
+
+[env.staging.vars]
+NODE_ENV = "staging"
+FRONTEND_URL = "https://staging.cepatusaha.com,https://cepatusaha-staging.vercel.app"
+CONVERSATION_LOOP_ENABLED = "true"
+MAX_LOOP_ITERATIONS = "10"
+LOOP_ITERATION_TIMEOUT = "120000"
+
+[[env.staging.r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "cepatusaha-assets-staging"
+
+[env.production]
+name = "cepatusaha-api-production"
+
+[env.production.vars]
+NODE_ENV = "production"
+FRONTEND_URL = "https://cepatusaha.com,https://www.cepatusaha.com"
+CONVERSATION_LOOP_ENABLED = "true"
+MAX_LOOP_ITERATIONS = "10"
+LOOP_ITERATION_TIMEOUT = "120000"
+
+[[env.production.r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "cepatusaha-assets-production"
+
+# Required secrets:
+#   wrangler secret put DATABASE_URL --env <environment>
+#   wrangler secret put CLERK_SECRET_KEY --env <environment>
+#   wrangler secret put AI_BASE_URL --env <environment>
+#   wrangler secret put AI_API_KEY --env <environment>
+#   wrangler secret put AI_DEFAULT_MODEL --env <environment>

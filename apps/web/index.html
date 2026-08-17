@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CepatUsaha - AI Website Builder</title>
+    <meta name="description" content="Build websites with AI through natural language conversations" />
+    <link rel="canonical" href="https://cepatusaha.ai" />
+    <meta property="og:title" content="CepatUsaha - AI Website Builder" />
+    <meta property="og:description" content="Build websites with AI through natural language conversations" />
+    <meta property="og:type" content="website" />
+    
+    <!-- Preconnect to critical origins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Load only Inter font initially (most used), defer others -->
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    </noscript>
+    
+    <!-- Critical CSS inline -->
+    <style>
+      /* Reset & Base */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+      body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; }
+      
+      /* Prevent layout shift */
+      #root { min-height: 100vh; background-color: #ffffff; }
+      
+      /* Loading state - matches ProtectedRoute style */
+      .app-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        gap: 12px;
+      }
+      
+      /* Spinner animation - optimized for performance */
+      @keyframes spin { 
+        to { transform: rotate(360deg); } 
+      }
+      .app-loading-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #e5e7eb;
+        border-top-color: #2563eb;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+        will-change: transform;
+      }
+      .app-loading-text {
+        font-size: 14px;
+        color: #4b5563;
+      }
+    </style>
+    
+    <!-- Load remaining fonts asynchronously -->
+    <script>
+      // Load additional fonts after page load
+      window.addEventListener('load', function() {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;600&display=swap';
+        document.head.appendChild(link);
+      });
+    </script>
+    
+    <script type="module">
+      if (import.meta.env.DEV) {
+        import("react-grab");
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

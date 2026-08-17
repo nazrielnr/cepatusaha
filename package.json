@@ -1,0 +1,29 @@
+{
+  "name": "cepatusaha-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:admin": "turbo run dev --filter=admin",
+    "dev:workers": "turbo run dev --filter=cepatusaha-workers",
+    "build": "turbo run build",
+    "build:web": "turbo run build --filter=web",
+    "build:admin": "turbo run build --filter=admin",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "rimraf": "^6.0.1",
+    "turbo": "^2.5.4",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {}
+}
