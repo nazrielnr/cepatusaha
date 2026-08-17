@@ -4,7 +4,7 @@ compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [build]
-command = "pnpm run build"
+command = "pnpm --filter=cepatusaha-workers build"
 
 [observability]
 enabled = true
@@ -58,7 +58,7 @@ name = "cepatusaha-api-production"
 
 [env.production.vars]
 NODE_ENV = "production"
-FRONTEND_URL = "https://cepatusaha.com,https://www.cepatusaha.com"
+FRONTEND_URL = "https://cepatusaha.com,https://www.cepatusaha.com,https://cepatusaha.vercel.app"
 CONVERSATION_LOOP_ENABLED = "true"
 MAX_LOOP_ITERATIONS = "10"
 LOOP_ITERATION_TIMEOUT = "120000"
@@ -66,6 +66,14 @@ LOOP_ITERATION_TIMEOUT = "120000"
 [[env.production.r2_buckets]]
 binding = "ASSETS_BUCKET"
 bucket_name = "cepatusaha-assets-production"
+
+[[env.production.durable_objects.bindings]]
+name = "REALTIME_ROOM"
+class_name = "RealtimeRoom"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RealtimeRoom"]
 
 # Required secrets:
 #   wrangler secret put DATABASE_URL --env <environment>
