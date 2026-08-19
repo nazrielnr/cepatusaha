@@ -5,6 +5,7 @@ import { sendChatMessageStream, stopChatStream } from '../api/chat'
 import { uploadChatImage } from '../api/assets'
 import { fetchSessionDetail } from '../api/sessions'
 import { useChatStreamCallbacks } from './useChatStreamCallbacks'
+import { APIError } from '../utils/error-handler'
 
 const MAX_HISTORY_MESSAGES = 8
 const AI_FALLBACK_MESSAGE = 'Maaf, AI sedang tidak tersedia. Coba lagi ya.'
@@ -289,6 +290,13 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return
         console.error('[useChatState] Chat error:', error)
+
+        // Quota limit: turn the placeholder into the LimitReached card (no fake thinking badge).
+        const code = error instanceof APIError ? error.code : (error as any)?.code
+        if (code === 'PLAN_QUOTA_EXCEEDED') {
+          setMessages((prev) => prev.map((msg) => msg.id === currentAiMessageIdRef.current ? { ...msg, content: '', tool_calls: [], metadata: { mode, error: true, error_code: code } } : msg))
+          return
+        }
 
         // Show error message
         const errorMessage: ChatMessage = {

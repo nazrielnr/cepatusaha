@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { useAuth, useUser } from '@clerk/clerk-react'
 import { usePreventBodyPadding } from '@/hooks/usePreventBodyPadding'
 import { useAppState } from '@/hooks/useAppState'
@@ -16,6 +16,64 @@ import { useAppWorkspaceProps } from './useAppWorkspaceProps'
 import { useHtmlUpdate } from './useHtmlUpdate'
 
 /**
+ * Creating a session from the landing page navigates with a full page reload,
+ * so the initial prompt must survive the reload. sessionStorage lives in the
+ * same tab, so it does; in-memory refs do not.
+ */
+const PENDING_SUBMIT_KEY = 'pendingInitialSubmit'
+
+interface PendingSubmit {
+  message: string
+  modelId?: string
+  planMode?: boolean
+  images?: File[]
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+async function persistPendingSubmit(pending: PendingSubmit) {
+  const images = pending.images?.length
+    ? await Promise.all(
+        pending.images.map(async (file) => ({
+          name: file.name,
+          type: file.type,
+          dataUrl: await fileToDataUrl(file),
+        })),
+      )
+    : undefined
+  sessionStorage.setItem(PENDING_SUBMIT_KEY, JSON.stringify({ message: pending.message, modelId: pending.modelId, planMode: pending.planMode, images }))
+}
+
+async function readPendingSubmit(): Promise<PendingSubmit | null> {
+  try {
+    const raw = sessionStorage.getItem(PENDING_SUBMIT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // NOTE: intentionally do NOT consume the key here. It is only removed once
+    // the submitted prompt actually landed in the chat (see pendingInitial)
+    // so a failed/stalled submit can retry instead of silently losing it.
+    const images = Array.isArray(parsed.images)
+      ? await Promise.all(
+          parsed.images.map(async (img: { name: string; type: string; dataUrl: string }) =>
+            new File([await (await fetch(img.dataUrl)).blob()], img.name, { type: img.type }),
+          ),
+        )
+      : undefined
+    return { message: parsed.message, modelId: parsed.modelId, planMode: parsed.planMode, images }
+  } catch {
+    sessionStorage.removeItem(PENDING_SUBMIT_KEY)
+    return null
+  }
+}
+
+/**
  * AppContent component
  *
  * Responsibility: Main application logic and state orchestration
@@ -29,7 +87,6 @@ export function AppContent() {
 
   const { isLoaded, isSignedIn, getToken } = useAuth()
   const { user } = useUser()
-  const navigate = useNavigate()
   const location = useLocation()
 
   // Simple token getter - let Clerk handle caching and refresh
@@ -50,11 +107,11 @@ export function AppContent() {
 
   // Handle session creation and navigation
   const handleSessionCreated = useCallback((sessionId: string) => {
-    navigate(`/projects/${sessionId}`, { replace: true })
-  }, [navigate])
+    // Push (not replace) so "home" stays in history and back returns home
+    window.location.href = `/projects/${sessionId}`
+  }, [])
 
   const chatMessagesRef = useRef<ChatMessage[]>([])
-  const pendingInitialSubmitRef = useRef<{ message: string; modelId?: string; planMode?: boolean; images?: File[] } | null>(null)
   const lastHydratedSessionIdRef = useRef<string | null>(null)
   const lastPreviewSessionIdRef = useRef<string | null>(null)
   const autoTitledSessionsRef = useRef<Set<string>>(new Set()) // Track sessions that already got auto-titled
@@ -110,6 +167,34 @@ export function AppContent() {
   const { resetPreviewState } = previewState
   const { setMessages, handleUserSubmit } = chatState
 
+  // Initial prompt typed on the landing page, carried across the full page
+  // reload that happens when the session is created.
+  const [pendingInitial, setPendingInitial] = useState<PendingSubmit | null>(null)
+
+  // Read the persisted prompt once the session becomes available (no consume).
+  useEffect(() => {
+    if (!appState.currentSession || pendingInitial) return
+    void readPendingSubmit().then(setPendingInitial)
+  }, [appState.currentSession, pendingInitial])
+
+  // Submit the pending prompt as soon as the chat is ready. Re-arms whenever
+  // the chat is still empty so a stall/race can't silently swallow the prompt.
+  // Once the user message lands (messages non-empty) the pending is consumed.
+  useEffect(() => {
+    if (!pendingInitial || !appState.activeSessionId) return
+
+    if (chatState.messages.length > 0) {
+      sessionStorage.removeItem(PENDING_SUBMIT_KEY)
+      setPendingInitial(null)
+      return
+    }
+
+    const timer = setTimeout(() => {
+      void handleUserSubmit(pendingInitial.message, 'chat', pendingInitial.modelId, pendingInitial.planMode, pendingInitial.images || [])
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [pendingInitial, appState.activeSessionId, chatState.messages, handleUserSubmit])
+
   // Reset preview state when switching to a new session (or no session)
   useEffect(() => {
     const sessionId = appState.activeSessionId || null
@@ -138,15 +223,6 @@ export function AppContent() {
     setMessages(sessionMessages)
     chatMessagesRef.current = sessionMessages
     lastHydratedSessionIdRef.current = sessionId
-
-    // Check for initial message from landing page
-    const pending = pendingInitialSubmitRef.current
-    if (pending && sessionMessages.length === 0) {
-      pendingInitialSubmitRef.current = null
-      setTimeout(() => {
-        handleUserSubmit(pending.message, 'chat', pending.modelId, pending.planMode, pending.images || [])
-      }, 100)
-    }
   }, [appState.currentSession, setMessages, handleUserSubmit])
 
   // Keep ref in sync when messages change
@@ -184,10 +260,10 @@ export function AppContent() {
       const intendedRoute = sessionStorage.getItem('intendedRoute')
       if (intendedRoute && intendedRoute !== '/' && location.pathname === '/') {
         sessionStorage.removeItem('intendedRoute')
-        navigate(intendedRoute, { replace: true })
+        window.location.replace(intendedRoute)
       }
     }
-  }, [isLoaded, isSignedIn, location.pathname, navigate])
+  }, [isLoaded, isSignedIn, location.pathname])
 
   // Error reporting callback for error boundaries
   const handlePageError = useCallback(
@@ -224,8 +300,11 @@ export function AppContent() {
   })
 
   const handleSelectSession = useCallback(async (sessionId: string) => {
-    navigate(`/projects/${sessionId}`)
-  }, [navigate])
+    // Clicking an existing session: never replay a stale landing-page prompt
+    sessionStorage.removeItem(PENDING_SUBMIT_KEY)
+    // Full page reload so the workspace mounts fresh (same as opening the URL directly)
+    window.location.href = `/projects/${sessionId}`
+  }, [])
 
   const handleRefreshSessions = appState.refreshSessions
 
@@ -235,7 +314,13 @@ export function AppContent() {
         sessions={appState.sessions}
         isSessionLoading={appState.isSessionLoading}
         onCreateSession={async (message: string, modelId?: string, planMode?: boolean, images?: File[]) => {
-          pendingInitialSubmitRef.current = { message, modelId, planMode, images }
+          // Persist before navigating: the reload that follows wipes in-memory refs.
+          // Never block session creation if storage fails (private mode, quota).
+          try {
+            await persistPendingSubmit({ message, modelId, planMode, images })
+          } catch (error) {
+            console.error('[AppContent] Failed to persist pending submit:', error)
+          }
           const session = await appState.createSession()
           handleSessionCreated(session.id)
         }}

@@ -5,6 +5,22 @@ import { toolFilePath, toolFilePathFromJson } from '../files/tool-path';
 
 type TokenUsage = { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 
+// Billing fallback: if the provider omits usage, estimate ~4 chars ≈ 1 token.
+const estimateTokens = (chars: number) => Math.max(1, Math.ceil(chars / 4));
+function estimateUsage(messages: ChatMessage[], found: { content: string; reasoningContent: string; toolCalls: Map<string, ToolCall>; attempts: number }): TokenUsage {
+  const inputChars = messages.reduce((sum, m) => {
+    let chars = typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length;
+    if (m.tool_calls) chars += JSON.stringify(m.tool_calls).length;
+    return sum + chars;
+  }, 0);
+  const outputChars = found.content.length + found.reasoningContent.length
+    + [...found.toolCalls.values()].reduce((n, tc) => n + (tc.function.arguments?.length || 0), 0);
+  // Retried attempts also consumed input tokens server-side; count them too.
+  const promptTokens = estimateTokens(inputChars) * Math.max(1, found.attempts);
+  const completionTokens = estimateTokens(outputChars);
+  return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
+}
+
 function jsonStringField(raw: string, key: string): string | undefined {
   const match = new RegExp(`"${key}"\\s*:\\s*"`).exec(raw);
   if (!match) return undefined;
@@ -97,6 +113,7 @@ export async function streamAIResponse(deps: StreamAIResponseDeps, messages: Cha
         }
       }
       streamManager?.sendEvent('text_done', {});
+      if (!usage) usage = estimateUsage(messages, { content, reasoningContent, toolCalls, attempts: retry + 1 });
       return { content, toolCalls: [...toolCalls.values()], reasoning_content: reasoningContent || undefined, usage };
     } catch (error) {
       try { await stream?.return?.({ message: { role: 'assistant', content: '' } }); } catch {}

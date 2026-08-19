@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate, useNavigationType } from 'react-router-dom'
+import { useLocation, useNavigationType } from 'react-router-dom'
 import {
   appendSessionMessages,
   createSession as createSessionApi,
@@ -26,7 +26,6 @@ import {
 
 export function useSessionManagement({ defaultProfile, requireToken, enabled }: UseSessionManagementOptions): UseSessionManagementValue {
   const location = useLocation()
-  const navigate = useNavigate()
   const navigationType = useNavigationType()
   const [sessionsState, setSessionsState] = useState<SessionSummary[]>([])
   const [activeSessionId, setActiveSessionId] = useState('')
@@ -245,12 +244,16 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
 
     ;(async () => {
       try {
-        const token = await requireToken()
+        // Mark loading before awaiting the token so the workspace never
+        // falsely reports "session not found" while the session hydrates
         let targetId = getSessionIdFromPath()
+        if (targetId) {
+          setIsSessionLoading(true)
+        }
+
+        const token = await requireToken()
 
         if (targetId) {
-          // Optimization: When session ID in URL, fetch detail first (Requirement 1.1)
-          // This eliminates the need for separate session list fetch
           try {
             const detail = ensureSessionTitle(await fetchSessionDetail(targetId, token))
 
@@ -304,6 +307,7 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
         setInitialized(true)
       } finally {
         initializingRef.current = false
+        setIsSessionLoading(false)
       }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -326,14 +330,14 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
     if (navigationType === 'POP' && activeSessionId && urlSessionId !== activeSessionId) {
       setCurrentSessionSafe(null)
       setActiveSessionId('')
-      navigate('/', { replace: true })
+      window.location.replace('/')
       return
     }
 
     if (urlSessionId !== activeSessionId) {
       void loadSessionInternal(urlSessionId).catch(() => setIsSessionLoading(false))
     }
-  }, [enabled, initialized, activeSessionId, location.pathname, loadSessionInternal, navigate, navigationType, setCurrentSessionSafe])
+  }, [enabled, initialized, activeSessionId, location.pathname, loadSessionInternal, navigationType, setCurrentSessionSafe])
 
   const selectSession = useCallback(
     async (sessionId: string, options?: { replaceHistory?: boolean }) => {

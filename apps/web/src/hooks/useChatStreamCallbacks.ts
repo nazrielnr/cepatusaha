@@ -220,6 +220,10 @@ export function useChatStreamCallbacks(options: UseChatStreamCallbacksOptions) {
           const last = allIterations[allIterations.length - 1]
           allIterations[allIterations.length - 1] = { ...last, metadata: { ...(last.metadata || {}), turn_done: true, done_event_received: true } }
         }
+        // Monthly quota ran out mid-run: append the LimitReached card after the partial content.
+        if (event.stoppedByQuota) {
+          setMessages((prev) => [...prev, { id: createId(), sender: 'ai', content: '', createdAt: new Date().toISOString(), tool_calls: [], metadata: { mode, error: true, error_code: 'PLAN_QUOTA_EXCEEDED' } }])
+        }
         await saveTurn({ totalIterations: event.totalIterations, totalFunctionCalls: event.totalFunctionCalls })
       },
 

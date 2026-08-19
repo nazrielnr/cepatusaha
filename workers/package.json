@@ -11,7 +11,7 @@
     "deploy:production": "pnpm run build && wrangler deploy --env production",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "node test/routes.test.mjs && node test/static.test.mjs && node test/logger.test.mjs && node test/prompt-builder.test.mjs && node test/cache.test.mjs && node test/image-context.test.mjs && node test/thinking-tags.test.mjs && node test/reasoning-metadata.test.mjs && node test/truncated-write-help.test.mjs && node test/stream-timeout.test.mjs",
+    "test": "node test/plan.test.mjs && node test/routes.test.mjs && node test/static.test.mjs && node test/logger.test.mjs && node test/prompt-builder.test.mjs && node test/cache.test.mjs && node test/image-context.test.mjs && node test/thinking-tags.test.mjs && node test/reasoning-metadata.test.mjs && node test/truncated-write-help.test.mjs && node test/stream-timeout.test.mjs",
     "tail": "wrangler tail",
     "tail:staging": "wrangler tail --env staging",
     "tail:production": "wrangler tail --env production",

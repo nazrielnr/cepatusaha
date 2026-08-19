@@ -20,6 +20,7 @@ export function useAppWorkspaceProps({ appState, chatState, previewState, userId
     sessions: appState.sessions,
     activeSessionId: appState.activeSessionId,
     currentSession: appState.currentSession,
+    initialized: appState.initialized,
     isSessionLoading: appState.isSessionLoading,
     messages: chatState.messages,
     isTyping: chatState.isTyping,

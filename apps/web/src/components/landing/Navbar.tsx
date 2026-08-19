@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Menu, Zap } from 'lucide-react'
 import { Button } from './Button'
-import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/clerk-react'
+import { SignInButton, SignedIn, SignedOut } from '@clerk/clerk-react'
+import { UsageMenu } from '@/components/plan/UsageMenu'
 
 export const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false)
@@ -14,12 +15,6 @@ export const Navbar: React.FC = () => {
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
-
-  const navLinks = [
-    { label: 'Fitur', href: '#features' },
-    { label: 'Templat', href: '#templates' },
-    { label: 'Harga', href: '#pricing' }
-  ]
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-3 md:pt-5 px-4 pointer-events-none">
@@ -53,29 +48,6 @@ export const Navbar: React.FC = () => {
                     CepatUsaha
                 </span>
             </div>
-        </div>
-
-        {/* CENTER LINKS */}
-        <div className={`
-            absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
-            hidden md:flex items-center
-            transition-all duration-500 ease-out
-            ${scrolled ? 'gap-0.5' : 'gap-2'}
-        `}>
-            {navLinks.map((link) => (
-                <a
-                    key={link.label}
-                    href={link.href}
-                    className={`
-                        rounded-full font-medium transition-all duration-200
-                        text-muted-foreground hover:text-primary hover:bg-muted/60
-                        flex items-center justify-center
-                        ${scrolled ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm'}
-                    `}
-                >
-                    {link.label}
-                </a>
-            ))}
         </div>
 
         {/* RIGHT ACTIONS */}
@@ -113,30 +85,11 @@ export const Navbar: React.FC = () => {
             {/* Signed In State */}
             <SignedIn>
               <div className={`
-                  hidden md:flex items-center overflow-hidden transition-[max-width,opacity] duration-500 [transition-timing-function:cubic-bezier(0.25,1,0.5,1)]
-                  ${scrolled ? 'max-w-0 opacity-0 pointer-events-none' : 'max-w-[120px] opacity-100'}
-              `}>
-                  <a
-                    href="/workspace"
-                    className="text-sm font-medium text-muted-foreground hover:text-primary px-3 py-2 transition-colors whitespace-nowrap"
-                  >
-                      Dashboard
-                  </a>
-              </div>
-
-              <div className={`
                 flex items-center gap-2
                 ${scrolled ? 'scale-90' : 'scale-100'}
                 transition-transform duration-500
               `}>
-                <UserButton
-                  afterSignOutUrl="/"
-                  appearance={{
-                    elements: {
-                      avatarBox: scrolled ? 'w-8 h-8' : 'w-9 h-9'
-                    }
-                  }}
-                />
+                <UsageMenu className={scrolled ? '!h-8 !w-8' : '!h-9 !w-9'} />
               </div>
             </SignedIn>
 

@@ -1,5 +1,4 @@
 import { ChevronLeft, PanelLeftClose } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 
 type ChatPanelHeaderProps = {
   projectName: string
@@ -10,13 +9,12 @@ type ChatPanelHeaderProps = {
 }
 
 export function ChatPanelHeader({ projectName, projectSubtitle, onCollapseSidebar }: ChatPanelHeaderProps) {
-  const navigate = useNavigate()
 
   return (
     <div className="h-14 min-h-[3.5rem] w-full border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 bg-white dark:bg-slate-900 sticky top-0 z-10 shrink-0 transition-colors">
       <div className="flex items-center min-w-0 flex-1">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => { window.location.replace('/') }}
           className="flex items-center justify-center w-8 h-8 mr-2 -ml-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
           aria-label="Back to dashboard"
         >

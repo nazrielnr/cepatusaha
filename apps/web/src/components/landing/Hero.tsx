@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { ArrowUp, Utensils, Shirt, Coffee, Sparkles, ChevronDown, Check, Loader2, Lightbulb, Paperclip, ImageIcon, X } from 'lucide-react'
+import { ArrowUp, Utensils, Shirt, Coffee, Sparkles, ChevronDown, Check, Loader2, Paperclip, ImageIcon, X } from 'lucide-react'
 import { Button } from './Button'
 import { InteractiveGridPattern } from './InteractiveGridPattern'
 import { fetchModels, type AIModel } from '@/api/models'
@@ -34,20 +34,12 @@ const PLACEHOLDER_EXAMPLES = [
   'studio yoga dengan booking kelas online'
 ]
 
-const PLAN_MODE_EXAMPLES = [
-  'rencanakan aplikasi e-commerce dengan fitur marketplace',
-  'desain sistem pemesanan untuk klinik kesehatan',
-  'buat dokumen kebutuhan untuk platform edukasi online',
-  'rancang arsitektur situs web agen perjalanan'
-]
-
 export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
   const [prompt, setPrompt] = useState('')
   const [models, setModels] = useState<AIModel[]>([])
   const [selectedModel, setSelectedModel] = useState<AIModel | null>(null)
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
   const [isLoadingModels, setIsLoadingModels] = useState(true)
-  const [isPlanMode, setIsPlanMode] = useState(false)
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [placeholderText, setPlaceholderText] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
@@ -76,16 +68,9 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
     loadModels()
   }, [])
 
-  // Reset placeholder when plan mode changes
-  useEffect(() => {
-    setPlaceholderText('')
-    setPlaceholderIndex(0)
-    setIsDeleting(false)
-  }, [isPlanMode])
-
   // Typewriter effect for placeholder
   useEffect(() => {
-    const examples = isPlanMode ? PLAN_MODE_EXAMPLES : PLACEHOLDER_EXAMPLES
+    const examples = PLACEHOLDER_EXAMPLES
     const currentFullText = examples[placeholderIndex]
 
     const handleTyping = () => {
@@ -111,7 +96,7 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
 
     const timer = setTimeout(handleTyping, isDeleting ? 30 : 50)
     return () => clearTimeout(timer)
-  }, [placeholderText, isDeleting, placeholderIndex, isPlanMode])
+  }, [placeholderText, isDeleting, placeholderIndex])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -135,7 +120,7 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
     setImages([])
 
     try {
-      await onGenerate(promptToSend, selectedModel.id, isPlanMode, imagesToSend)
+      await onGenerate(promptToSend, selectedModel.id, false, imagesToSend)
     } finally {
       setIsSubmitting(false)
     }
@@ -205,22 +190,9 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
       {/* Input Area */}
       <div className="relative w-full max-w-2xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
 
-        {/* Plan Mode Indicator */}
-        {isPlanMode && (
-          <div className="mb-3 flex items-center gap-2 px-4 py-2 bg-secondary/10 border border-secondary/30 rounded-lg">
-            <Lightbulb className="w-4 h-4 text-secondary fill-secondary" />
-            <span className="text-xs text-foreground font-medium">
-              Mode Perencanaan aktif - AI akan membuat desain, dokumen kebutuhan, dan perencanaan proyek
-            </span>
-          </div>
-        )}
-
         <div className={`
           relative group bg-card rounded-2xl border transition-all duration-300 shadow-xl shadow-foreground/5 flex flex-col
-          ${isPlanMode
-            ? 'border-secondary/30 focus-within:border-secondary focus-within:ring-4 focus-within:ring-secondary/20'
-            : 'border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10'
-          }
+          border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10
         `}>
 
           {images.length > 0 && (
@@ -300,24 +272,6 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
                 </div>
               )}
 
-              {/* Plan Mode Toggle Button */}
-              <button
-                type="button"
-                onClick={() => setIsPlanMode(!isPlanMode)}
-                disabled={isGenerating || isSubmitting}
-                className={`
-                  flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
-                  ${isPlanMode
-                    ? 'bg-secondary/10 border-secondary/30 text-foreground hover:bg-secondary/20'
-                    : 'bg-muted border-border text-muted-foreground hover:bg-muted/80'
-                  }
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                `}
-                title={isPlanMode ? 'Mode Perencanaan aktif - AI akan membuat desain & dokumen kebutuhan' : 'Aktifkan mode perencanaan'}
-              >
-                <Lightbulb className={`w-3.5 h-3.5 ${isPlanMode ? 'fill-secondary text-secondary' : ''}`} />
-                <span>Rencanakan</span>
-              </button>
             </div>
 
             {/* Generate Button */}

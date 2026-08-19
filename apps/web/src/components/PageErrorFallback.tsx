@@ -5,7 +5,6 @@
  * Provides user-friendly error messages and recovery options.
  */
 
-import { useNavigate } from 'react-router-dom'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card'
 import { AlertCircle, Home, RefreshCw } from 'lucide-react'
@@ -17,10 +16,9 @@ interface PageErrorFallbackProps {
 }
 
 export function PageErrorFallback({ error, resetError, pageName = 'page' }: PageErrorFallbackProps) {
-  const navigate = useNavigate()
 
   const handleGoHome = () => {
-    navigate('/', { replace: true })
+    window.location.replace('/')
     if (resetError) {
       resetError()
     }

@@ -2,6 +2,7 @@ import { memo, useEffect, useState } from 'react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { MarkdownContent } from './MarkdownContent'
 import { ActionBlock } from '../ActionBlock'
+import { LimitReached } from './LimitReached'
 import { areMessagesEqual, hasMarkdown as detectMarkdown, mapToolCallsToActions, type MessageBubbleProps } from './messageBubbleUtils'
 
 export const MessageBubble = memo(function MessageBubble({ message, isExiting = false, isStreaming = false, onFormSubmit }: MessageBubbleProps) {
@@ -24,6 +25,16 @@ export const MessageBubble = memo(function MessageBubble({ message, isExiting = 
 
   const hasMarkdown = !isUser && detectMarkdown(message.content)
   const animationClass = isExiting ? 'animate-exit' : (!animationDone ? 'animate-enter' : '')
+
+  // Quota limit: render the LimitReached card instead of any thinking/text/actions block
+  const errorCode = (message.metadata?.error_code as string | undefined) || ''
+  if (!isUser && errorCode.startsWith('PLAN_QUOTA')) {
+    return (
+      <div className={`flex justify-start ${animationClass}`} style={{ animationFillMode: 'forwards' }}>
+        <LimitReached />
+      </div>
+    )
+  }
 
   if (isUser) {
     let selectedElement: any = null

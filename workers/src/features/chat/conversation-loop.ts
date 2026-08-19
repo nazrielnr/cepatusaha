@@ -41,6 +41,7 @@ export class ConversationLoop {
     const executionContext: ExecutionContext = { user_id: context.userId, session_id: context.sessionId, project_id: context.projectId, clerk_user_id: context.clerkUserId, signal: context.signal, run_id: context.runId, isAborted };
     const allToolCalls: StaticToolCall[] = [];
     const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+    let stoppedByQuota = false;
     let finalMessage: ChatMessage = { role: 'assistant', content: '', tool_calls: [] };
     let iteration = 0;
 
@@ -58,23 +59,34 @@ export class ConversationLoop {
           usage.total_tokens += result.usage.total_tokens;
         }
 
-        this.streamManager?.sendEvent('iteration_data', {
-          iteration: n,
-          text: result.aiResponse.content.trim(),
-          toolCalls: result.executedToolCalls || [],
-          reasoning_content: result.aiResponse.reasoning_content,
-          phase: result.aiResponse.toolCalls.length ? 'post_execution' : 'complete',
-        });
-        this.streamManager?.sendEvent('iteration_complete', { iteration: n, function_calls_count: result.executionResults.length, duration_ms: result.duration });
+        // Live monthly quota: stop the loop once the month budget runs out mid-run.
+        let monthExhausted = false;
+        if (this.config.usageReporter && usage.total_tokens > 0) {
+          const remainingMonth = await this.config.usageReporter(usage);
+          monthExhausted = typeof remainingMonth === 'number' && remainingMonth <= 0;
+        }
+        if (monthExhausted) {
+          stoppedByQuota = true;
+          this.streamManager?.sendEvent('quota_hit', { tokensUsed: usage.total_tokens, monthly: monthExhausted });
+        } else {
+          this.streamManager?.sendEvent('iteration_data', {
+            iteration: n,
+            text: result.aiResponse.content.trim(),
+            toolCalls: result.executedToolCalls || [],
+            reasoning_content: result.aiResponse.reasoning_content,
+            phase: result.aiResponse.toolCalls.length ? 'post_execution' : 'complete',
+          });
+          this.streamManager?.sendEvent('iteration_complete', { iteration: n, function_calls_count: result.executionResults.length, duration_ms: result.duration });
+        }
 
         finalMessage = { role: 'assistant', content: result.aiResponse.content.trim(), tool_calls: allToolCalls.length ? allToolCalls as unknown as ToolCall[] : result.aiResponse.toolCalls };
-        if (!result.shouldContinue) break;
+        if (stoppedByQuota || !result.shouldContinue) break;
       }
 
       const maxed = iteration >= this.config.maxIterations && finalMessage.content === '';
       if (maxed) warnLog(undefined, '[ConversationLoop] Max iterations reached', { maxIterations: this.config.maxIterations, sessionId: context.sessionId });
       this.streamManager?.sendEvent('loop_complete', { total_iterations: Math.min(iteration + 1, this.config.maxIterations), total_function_calls: allToolCalls.length, max_iterations_reached: maxed });
-      return { success: true, totalIterations: Math.min(iteration + 1, this.config.maxIterations), totalFunctionCalls: allToolCalls.length, finalMessage, usage: usage.total_tokens ? usage : undefined };
+      return { success: true, totalIterations: Math.min(iteration + 1, this.config.maxIterations), totalFunctionCalls: allToolCalls.length, finalMessage, usage: usage.total_tokens ? usage : undefined, stoppedByQuota };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       errorLog(undefined, '[ConversationLoop] Loop failed', { error: msg, iteration, sessionId: context.sessionId, duration: Date.now() - start });

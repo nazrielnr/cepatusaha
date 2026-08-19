@@ -1,4 +1,5 @@
-import { apiUrl, jsonHeaders, readError, requireToken } from './client'
+import { apiUrl, jsonHeaders, requireToken } from './client'
+import { APIError } from '../utils/error-handler'
 
 let tokenRefreshCallback: (() => Promise<string>) | null = null
 export function setTokenRefreshCallback(callback: () => Promise<string>) { tokenRefreshCallback = callback }
@@ -43,6 +44,20 @@ export async function stopChatStream(sessionId: string, runId: string, token?: s
   })
 }
 
+async function readErrorDetails(response: Response): Promise<{ message: string; code?: string }> {
+  const text = await response.text().catch(() => '')
+  if (!text) return { message: response.statusText || 'Request failed' }
+  try {
+    const json = JSON.parse(text)
+    const raw = json?.error
+    const message = (typeof raw === 'string' ? raw : raw?.message) || json?.message || text
+    const code = typeof raw === 'object' && raw ? raw.code : json?.code
+    return { message, code }
+  } catch {
+    return { message: text }
+  }
+}
+
 export async function sendChatMessageStream(conversation: any[], sessionId: string | undefined, callbacks: StreamCallbacks, token?: string, modelId?: string, planMode?: boolean, signal?: AbortSignal, runId?: string, context: Record<string, unknown> = {}): Promise<void> {
   const response = await fetchWithTokenRetry(apiUrl('/api/chat/stream'), {
     method: 'POST',
@@ -50,7 +65,10 @@ export async function sendChatMessageStream(conversation: any[], sessionId: stri
     body: JSON.stringify({ conversation, sessionId, context, model: modelId, planMode: planMode ?? false, runId }),
     signal,
   })
-  if (!response.ok) throw new Error(`Chat stream failed: ${await readError(response)}`)
+  if (!response.ok) {
+    const { message, code } = await readErrorDetails(response)
+    throw new APIError(message, code, response.status)
+  }
   if (!response.body) throw new Error('No response body')
 
   const reader = response.body.getReader()

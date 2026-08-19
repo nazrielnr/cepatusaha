@@ -25,6 +25,7 @@ import {
 } from './features/files/routes';
 import { getAsset, uploadAsset, uploadImage } from './features/assets/routes';
 import { adminModelHealth, adminModels, adminNotImplemented } from './features/admin/routes';
+import { getPlan, adminTokenOverview, adminTokenByUser, adminTokenBySession } from './features/plan/routes';
 
 export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth: AuthResult } }>) {
   // Chat endpoint
@@ -75,6 +76,11 @@ export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth
   // Models endpoint (public, no auth required)
   app.get('/api/models', getModels);
   app.get('/models', getModels);
+
+  // Plan & usage (auth required). Pro gateway intentionally NOT registered yet:
+  // plan switching happens directly in the DB until payments land. See packaging in
+  // features/plan/pricing.js for the pro limits already in place.
+  app.get('/api/plan', getPlan);
 
   // Admin routes - require both authentication and super admin authorization
   // Apply super admin middleware to all /api/admin/* routes
@@ -129,9 +135,9 @@ export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth
   app.get('/api/admin/dependencies/stats', adminNotImplemented);
 
   // Admin token usage endpoints
-  app.get('/api/admin/tokens', adminNotImplemented);
-  app.get('/api/admin/tokens/user/:userId', adminNotImplemented);
-  app.get('/api/admin/tokens/session/:sessionId', adminNotImplemented);
+  app.get('/api/admin/tokens', adminTokenOverview);
+  app.get('/api/admin/tokens/user/:userId', adminTokenByUser);
+  app.get('/api/admin/tokens/session/:sessionId', adminTokenBySession);
 
   // Admin chat monitoring endpoints
   app.get('/api/admin/chats', adminNotImplemented);

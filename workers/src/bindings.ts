@@ -19,6 +19,12 @@ export type Bindings = {
   NODE_ENV?: string;
   DEBUG_LOGS?: string;
   FRONTEND_URL?: string;
+  PLAN_FREE_MONTHLY_TOKENS?: string;
+  PLAN_FREE_MAX_ITERATIONS?: string;
+  PLAN_FREE_REQ_PER_MINUTE?: string;
+  PLAN_PRO_MONTHLY_TOKENS?: string;
+  PLAN_PRO_MAX_ITERATIONS?: string;
+  PLAN_PRO_REQ_PER_MINUTE?: string;
   ASSETS_BUCKET: R2Bucket;
   ASSETS_PUBLIC_URL?: string;
   REALTIME_ROOM: DurableObjectNamespace;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import type { ComposerReplyContext } from '@/components/chat/ChatComposer'
 import { PreviewPanel } from '@/components/preview/PreviewPanel'
@@ -16,6 +16,7 @@ interface WorkspacePageProps {
   sessions: Array<{ id: string; title: string }>
   activeSessionId: string | null
   currentSession?: SessionData | null
+  initialized?: boolean
   isSessionLoading?: boolean
 
   // Chat props
@@ -68,6 +69,7 @@ export default function WorkspacePage({
   sessions,
   activeSessionId,
   currentSession,
+  initialized = false,
   isSessionLoading = false,
   messages,
   isTyping,
@@ -107,7 +109,6 @@ export default function WorkspacePage({
   // checkpointState, // TEMPORARILY DISABLED
 }: WorkspacePageProps) {
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>()
-  const navigate = useNavigate()
   const [mobileView, setMobileView] = useState<'chat' | 'preview'>('chat')
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [replyContext, setReplyContext] = useState<ComposerReplyContext | null>(null)
@@ -126,9 +127,11 @@ export default function WorkspacePage({
   const currentSessionId = urlSessionId || activeSessionId || sessionId
   const sessionExists = sessions.some((s) => s.id === currentSessionId) || currentSession?.id === currentSessionId
 
-  // Handle invalid session ID using effect to avoid state updates during render
+  // Handle invalid session ID using effect to avoid state updates during render.
+  // Wait for initialization: until `initialized` is true the session may still
+  // be hydrating, so flagging it as missing would flash a false "not found".
   useEffect(() => {
-    if (!currentSessionId || isSessionLoading) {
+    if (!currentSessionId || isSessionLoading || !initialized) {
       if (sessionError) {
         setSessionError(null)
       }
@@ -138,7 +141,7 @@ export default function WorkspacePage({
     if (!sessionExists) {
       setSessionError('Session not found. Redirecting to home...')
       const timeout = setTimeout(() => {
-    navigate('/', { replace: true })
+    window.location.replace('/')
       }, 800) // Reduced from 1500ms to 800ms
       return () => clearTimeout(timeout)
     }
@@ -146,7 +149,7 @@ export default function WorkspacePage({
     if (sessionError) {
       setSessionError(null)
     }
-  }, [currentSessionId, isSessionLoading, sessionExists, navigate, sessionError])
+  }, [currentSessionId, isSessionLoading, initialized, sessionExists, sessionError])
 
   if (sessionError) {
     // Show clean error UI while redirecting

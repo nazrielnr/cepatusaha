@@ -33,6 +33,9 @@ export interface ConversationLoopConfig {
   iterationTimeout: number;
   enabled: boolean;
   rateLimit?: Partial<RateLimitConfig>;
+  /** Called after each iteration with tokens consumed so far in this run. Returns remaining monthly
+   *  quota (<= 0 stops the run early). Implementations must charge the delta only once. */
+  usageReporter?: (cumulative: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => Promise<number | undefined>;
 }
 
 export interface LoopContext {
@@ -60,5 +63,7 @@ export interface LoopResult {
   totalFunctionCalls: number;
   finalMessage: ChatMessage;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  /** True when the loop stopped because the per-run token cap was hit. */
+  stoppedByQuota?: boolean;
   error?: string;
 }

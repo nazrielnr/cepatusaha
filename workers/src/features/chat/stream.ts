@@ -17,6 +17,8 @@ import type { ChatMessage as AIChatMessage, ChatParams } from '../models/ai-prov
 import { ValidationError } from '../../shared/errors';
 import { corsResponseHeaders } from '../../middleware/cors';
 import { imageToModelUrl } from './image-context';
+import { getPlanState, chargeTokenUsage } from '../plan/service';
+import { createSql } from '../../db';
 
 
 /**
@@ -55,6 +57,43 @@ export async function chatHandlerStream(c: HonoContext) {
 
   const dbUserId = await getSessionDbUserId(c.env, auth.userId);
 
+  // Plan enforcement: monthly quota pre-flight + per-plan iteration/model caps.
+  const planState = await getPlanState(c.env, auth.userId);
+  if (planState.exhausted) {
+    return c.json({
+      status: 'error',
+      error: {
+        code: 'PLAN_QUOTA_EXCEEDED',
+        message: `Kuota token bulanan kamu habis (${planState.monthUsedTokens.toLocaleString('id-ID')} / ${planState.monthLimitTokens.toLocaleString('id-ID')}). Upgrade ke Pro atau tunggu bulan berikutnya.`,
+      }
+    }, 402);
+  }
+
+  const premiumModelRequested = requestedModel && requestedModel !== c.env.AI_DEFAULT_MODEL;
+  if (premiumModelRequested && planState.plan === 'free') {
+    return c.json({
+      status: 'error',
+      error: { code: 'PLAN_MODEL_FORBIDDEN', message: 'Model premium hanya untuk pengguna Pro. Upgrade dulu atau gunakan model default.' }
+    }, 403);
+  }
+
+  // Per-user request rate limit (declared in plan limits). Charged runs land in
+  // token_usage_logs, so a request flood shows up here within one iteration of tokens.
+  // ponytail: replace with Cloudflare Rate Limiting binding when traffic grows.
+  if (planState.reqPerMinute > 0) {
+    const recent = await createSql(c.env)`
+      select count(*) as n from token_usage_logs
+      where user_id = (select id from users where clerk_user_id = ${auth.userId})
+        and created_at > now() - interval '60 seconds'
+    `;
+    if (Number(recent[0]?.n ?? 0) >= planState.reqPerMinute) {
+      return c.json({
+        status: 'error',
+        error: { code: 'RATE_LIMITED', message: 'Terlalu banyak permintaan. Coba lagi sebentar lagi.' }
+      }, 429);
+    }
+  }
+
   // Verify session if provided
   if (sessionId) {
     const sessionExists = await sessionExistsForUser(c.env, sessionId, dbUserId);
@@ -80,11 +119,30 @@ export async function chatHandlerStream(c: HonoContext) {
   }
 
 
+  // Track charged usage live so the loop can stop on month-exhaustion mid-run.
+  let lastRemainingMonthTokens = planState.monthRemainingTokens;
+  let lastCharged = { prompt: 0, completion: 0 };
+
   // Load conversation loop configuration
   const loopConfig: ConversationLoopConfig = {
     enabled: c.env.CONVERSATION_LOOP_ENABLED !== 'false',
-    maxIterations: parseInt(c.env.MAX_LOOP_ITERATIONS || '30', 10),
+    maxIterations: Math.min(parseInt(c.env.MAX_LOOP_ITERATIONS || '30', 10), planState.maxIterations),
     iterationTimeout: parseInt(c.env.LOOP_ITERATION_TIMEOUT || '180000', 10),
+    // Charge tokens per iteration (not per run): aborted/failed runs pay for what
+    // they consumed, and parallel runs shrink the shared budget together.
+    usageReporter: (cumulative) => {
+      const deltaPrompt = cumulative.prompt_tokens - lastCharged.prompt;
+      const deltaCompletion = cumulative.completion_tokens - lastCharged.completion;
+      lastCharged = { prompt: cumulative.prompt_tokens, completion: cumulative.completion_tokens };
+      if (deltaPrompt + deltaCompletion <= 0) return Promise.resolve(lastRemainingMonthTokens);
+      return chargeTokenUsage(c.env, auth.userId, {
+        promptTokens: deltaPrompt,
+        completionTokens: deltaCompletion,
+        sessionId,
+        runId,
+        model: modelName,
+      }).then((remaining) => { lastRemainingMonthTokens = remaining ?? lastRemainingMonthTokens; return lastRemainingMonthTokens; });
+    },
     // Rate limiting configuration
     rateLimit: {
       enabled: c.env.RATE_LIMIT_ENABLED !== 'false',
@@ -187,7 +245,10 @@ export async function chatHandlerStream(c: HonoContext) {
         streamManager.sendEvent('done', {
           totalIterations: loopResult.totalIterations,
           totalFunctionCalls: loopResult.totalFunctionCalls,
-          sessionId
+          sessionId,
+          usage: loopResult.usage || undefined,
+          stoppedByQuota: loopResult.stoppedByQuota || false,
+          remainingMonthTokens: lastRemainingMonthTokens,
         });
 
         streamManager.close();

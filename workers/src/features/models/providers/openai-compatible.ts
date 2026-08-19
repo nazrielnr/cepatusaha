@@ -192,6 +192,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
       temperature,
       max_tokens: Math.min(max_tokens, MAX_OUTPUT_TOKENS),
       stream: true, // Enable streaming
+      stream_options: { include_usage: true }, // Ask for the final usage chunk so billing is exact
     };
     
     if (reasoning_effort) {
@@ -255,6 +256,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
       const yieldedToolCalls = new Set<number>(); // Track early notifications
       const detailYieldedToolCalls = new Set<number>(); // Track detailed updates
       let finishReason: string | undefined;
+      let streamUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined;
       const thinkingParser = createThinkingTagParser();
       idleFinish = () => Boolean(toolCalls.length && toolCalls.some((tc) => tc?.function.name && validArgsObject(tc.function.arguments || '')));
       
@@ -302,6 +304,10 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
               
               try {
                 const data = JSON.parse(dataStr);
+                // Usage arrives on its own terminal chunk (no choices) when stream_options.include_usage is on.
+                if (data.usage && (data.usage.prompt_tokens || data.usage.completion_tokens)) {
+                  streamUsage = data.usage;
+                }
                 const choice = data.choices?.[0];
                 
                 if (!choice) {
@@ -482,6 +488,13 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
       return {
         message,
         finish_reason: finishReason,
+        usage: streamUsage
+          ? {
+              prompt_tokens: streamUsage.prompt_tokens || 0,
+              completion_tokens: streamUsage.completion_tokens || 0,
+              total_tokens: streamUsage.total_tokens || (streamUsage.prompt_tokens || 0) + (streamUsage.completion_tokens || 0),
+            }
+          : undefined,
       };
     } catch (error) {
       try { controller.abort(); } catch {}
