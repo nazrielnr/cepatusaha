@@ -45,13 +45,13 @@ export async function ensureDefaultWorkspace(env: Bindings, projectId: string): 
   const [{ count }] = await sql`select count(*)::int as count from files where project_id = ${projectId}` as Array<{ count: number }>
   if (count) return
   const now = new Date().toISOString()
-  for (const file of DEFAULT_WORKSPACE_FILES) {
-    await sql`
-      insert into files (project_id, file_path, content, file_type, created_at, updated_at)
-      values (${projectId}, ${file.path}, ${file.content}, ${file.type}, ${now}, ${now})
-      on conflict (project_id, file_path) do nothing
-    `
-  }
+  // one multi-row insert = 1 subrequest (free-plan budget) instead of one query per file;
+  await sql`
+    insert into files (project_id, file_path, content, file_type, created_at, updated_at)
+    select ${projectId}, r.path, r.content, r.type, ${now}, ${now}
+    from jsonb_to_recordset(${JSON.stringify(DEFAULT_WORKSPACE_FILES.map((f) => ({ path: f.path, content: f.content, type: f.type })))}::jsonb) as r(path text, content text, type text)
+    on conflict (project_id, file_path) do nothing
+  `
 }
 
 export const DEFAULT_WORKSPACE_FILES: DefaultWorkspaceFile[] = [

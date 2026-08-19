@@ -34,16 +34,11 @@ export async function assertProjectOwner(env: Bindings, projectId: string, dbUse
 export async function upsertFile(env: Bindings, projectId: string, filePath: string, content: string): Promise<void> {
   const sql = createSql(env)
   const now = new Date().toISOString()
-  const updated = await sql`
-    update files
-    set content = ${content}, updated_at = ${now}
-    where project_id = ${projectId} and file_path = ${filePath}
-    returning id
-  `
-  if (updated.length) return
   await sql`
     insert into files (project_id, file_path, content, file_type, created_at, updated_at)
     values (${projectId}, ${filePath}, ${content}, ${fileType(filePath)}, ${now}, ${now})
+    on conflict (project_id, file_path) do update
+    set content = ${content}, updated_at = ${now}
   `
 }
 

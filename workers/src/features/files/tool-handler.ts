@@ -52,9 +52,12 @@ export class FunctionCallHandler {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
           const content = str(p.content)
           if (content === undefined) return fail(toolCall.name, 'content is required')
-          const existing = await readFile(this.env, projectId, filePath)
           if (await aborted(context)) return fail(toolCall.name, 'Tool execution aborted', 'ABORTED')
-          if (existing && p.overwrite === false) return fail(toolCall.name, 'File exists and overwrite is false')
+          // ponytail: skip the existence pre-read except when overwrite=false; free-plan subrequest budget. Upgrade: enforce overwrite via single conditional upsert once Neon supports returning on conflict.
+          if (p.overwrite === false) {
+            const existing = await readFile(this.env, projectId, filePath)
+            if (existing) return fail(toolCall.name, 'File exists and overwrite is false')
+          }
           await upsertFile(this.env, projectId, filePath, content)
           return ok(toolCall.name, { file_path: filePath })
         }
@@ -155,7 +158,7 @@ export class FunctionCallHandler {
           let replacements = 0
           for (const f of files.filter((f) => matchesPattern(f.file_path, str(p.file_pattern)))) {
             const current = f.content ?? ''
-            if (await aborted(context)) return fail(toolCall.name, 'Tool execution aborted', 'ABORTED')
+            if (abortedSync(context)) return fail(toolCall.name, 'Tool execution aborted', 'ABORTED')
             const next = bool(p.case_sensitive) ? current.split(search).join(replace) : current.replaceAll(new RegExp(escapeRegExp(search), 'gi'), replace)
             if (next === current) continue
             replacements += countOccurrences(current, search, bool(p.case_sensitive))
@@ -257,7 +260,9 @@ function invalidArgsMessage(toolName: string, p: ToolParams): string {
   const path = str(p._suspected_path)
   return `Invalid ${toolName} arguments JSON: ${parseError}. The file content was likely truncated. Do not retry ${toolName} and do not overwrite the file. ${path ? `Call read_file(path: "${path}") first, inspect the saved partial content, then continue from the last intact line with edit_file mode="insert" or mode="replace".` : 'Call list_files/read_file first to inspect the saved partial content, then continue from the last intact line with edit_file mode="insert" or mode="replace".'}`
 }
-async function aborted(context: ExecutionContext): Promise<boolean> { return Boolean(context.signal?.aborted || await context.isAborted?.()) }
+async function aborted(context: ExecutionContext): Promise<boolean> { return Boolean(context.signal?.aborted) }
+// ponytail: per-file signal-only abort check inside batch_replace loops; DB stop flag is polled at iteration boundaries. Upgrade: Durable Object stop flag.
+function abortedSync(context: ExecutionContext): boolean { return Boolean(context.signal?.aborted) }
 function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
 function countOccurrences(value: string, search: string, caseSensitive: boolean): number { return (caseSensitive ? value : value.toLowerCase()).split(caseSensitive ? search : search.toLowerCase()).length - 1 }
 function matchesPattern(path: string, pattern?: string): boolean {

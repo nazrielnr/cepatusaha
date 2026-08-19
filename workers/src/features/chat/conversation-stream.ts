@@ -42,11 +42,11 @@ export type StreamAIResponseDeps = {
   iteration: number;
   forceToolUse?: boolean;
   disableImageTool?: boolean;
-  isAborted?: () => Promise<boolean>;
+  signal?: AbortSignal;
 };
 
 export async function streamAIResponse(deps: StreamAIResponseDeps, messages: ChatMessage[]): Promise<{ content: string; toolCalls: ToolCall[]; reasoning_content?: string; usage?: TokenUsage }> {
-  const { provider, streamManager, planMode, preferredModel, reasoningEffort, rateLimitConfig, iteration, forceToolUse, disableImageTool, isAborted } = deps;
+  const { provider, streamManager, planMode, preferredModel, reasoningEffort, rateLimitConfig, iteration, forceToolUse, disableImageTool, signal } = deps;
   const { TOOL_SCHEMAS } = await import('../files/tools');
   const baseTools = disableImageTool ? TOOL_SCHEMAS.filter((tool) => tool.name !== 'analyze_image') : TOOL_SCHEMAS;
   const tools = planMode ? [...(await import('../planning/tools')).PLANNING_TOOL_SCHEMAS, ...baseTools] : baseTools;
@@ -63,7 +63,10 @@ export async function streamAIResponse(deps: StreamAIResponseDeps, messages: Cha
       stream = provider.chatStream({ messages, tools, model: preferredModel, reasoning_effort: reasoningEffort, tool_choice: forceToolUse ? 'required' : 'auto' });
       while (true) {
         const next = await stream.next();
-        if (await isAborted?.()) throw new Error('Stream aborted');
+        // ponytail: check is signal-only here — free on Workers; the DB stop flag (`/api/chat/stop`)
+        // is polled once per loop iteration instead. Polling Neon per chunk blows the 50-subrequest
+        // (free plan) budget on long replies; upgrade path: Durable Object stop flag + nanosecond locks.
+        if (signal?.aborted) throw new Error('Stream aborted');
         if (next.done) { usage = next.value?.usage; break; }
         const chunk = next.value;
         if (chunk.type === 'text') {

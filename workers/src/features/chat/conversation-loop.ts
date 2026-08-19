@@ -89,7 +89,7 @@ export class ConversationLoop {
     const nextMessages = iteration === 1 ? messages : [...messages, { role: 'system' as const, content: this.iterationPrompt(messages, iteration) }];
     const wantsFileChange = messages.some((m) => m.role === 'user' && FILE_CHANGE_REQUEST.test(text(m.content)));
     const forceToolUse = wantsFileChange && !messages.some((m) => m.role === 'tool' && FILE_MUTATION_TOOLS.some((tool) => text(m.content).includes(`"tool_name":"${tool}"`)));
-    const ai = await streamAIResponse({ provider: this.provider, streamManager: this.streamManager, planMode: this.planMode, preferredModel: this.preferredModel, reasoningEffort: this.reasoningEffort, rateLimitConfig: this.rateLimitConfig, iteration, forceToolUse, disableImageTool: this.disableImageTool, isAborted: context.isAborted }, nextMessages);
+    const ai = await streamAIResponse({ provider: this.provider, streamManager: this.streamManager, planMode: this.planMode, preferredModel: this.preferredModel, reasoningEffort: this.reasoningEffort, rateLimitConfig: this.rateLimitConfig, iteration, forceToolUse, disableImageTool: this.disableImageTool, signal: context.signal }, nextMessages);
 
     messages.push({ role: 'assistant', content: ai.content, tool_calls: ai.toolCalls.length ? ai.toolCalls : undefined });
     this.prune(messages);
