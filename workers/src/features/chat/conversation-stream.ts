@@ -117,6 +117,8 @@ export async function streamAIResponse(deps: StreamAIResponseDeps, messages: Cha
       return { content, toolCalls: [...toolCalls.values()], reasoning_content: reasoningContent || undefined, usage };
     } catch (error) {
       try { await stream?.return?.({ message: { role: 'assistant', content: '' } }); } catch {}
+      // Aborted (loop attempt timeout or user stop): propagate silently — no UI event, no internal retry.
+      if (signal?.aborted) throw error;
       const msg = error instanceof Error ? error.message : String(error);
       const is429 = /429|rate limit|too many requests/i.test(msg);
       const max = is429 ? rateLimitConfig.maxRetries429 : 2;

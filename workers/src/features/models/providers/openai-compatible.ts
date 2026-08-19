@@ -6,7 +6,7 @@
  */
 
 import { BaseAIProvider, ChatParams, ChatResponse, ChatMessage, StreamChunk, ToolCall } from '../ai-provider';
-import { debugLog, errorLog } from '../../../shared/logger';
+import { debugLog, errorLog, warnLog } from '../../../shared/logger';
 import { toolFilePathFromJson } from '../../files/tool-path';
 import { createThinkingTagParser } from './thinking-tags';
 
@@ -260,46 +260,32 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
       const thinkingParser = createThinkingTagParser();
       idleFinish = () => Boolean(toolCalls.length && toolCalls.some((tc) => tc?.function.name && validArgsObject(tc.function.arguments || '')));
       
-      // Read and parse SSE stream
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          resetStreamTimeout();
-          
-          if (done) {
-            break;
-          }
-          
-          // Decode chunk and add to buffer
-          buffer += decoder.decode(value, { stream: true });
-          
-          // Split by newlines to get complete lines
-          const lines = buffer.split('\n');
-          
-          // Keep the last incomplete line in buffer
-          buffer = lines.pop() || '';
-          
-          // Process complete lines
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            
-            // Skip empty lines and SSE comments (including keep-alive)
-            if (!trimmedLine || trimmedLine.startsWith(':')) {
-              continue;
-            }
-            
-            // Parse SSE data lines
-            if (trimmedLine.startsWith('data: ')) {
-              const dataStr = trimmedLine.slice(6).trim();
+      // Parse one complete SSE line into stream chunks. Extracted so the final leftover
+      // buffer (a line without a trailing newline at EOF) can reuse the same logic —
+      // otherwise the stream tail (tool-call arguments / usage chunk / final text,
+      // i.e. the end of a created file) is silently dropped.
+      const providerName = this.name;
+      const nodeEnv = this.nodeEnv;
+      function* parseSseLine(line: string): Generator<StreamChunk, void, unknown> {
+        const trimmedLine = line.trim();
+        
+        // Skip empty lines and SSE comments (including keep-alive)
+        if (!trimmedLine || trimmedLine.startsWith(':')) {
+          return;
+        }
+        
+        // Parse SSE data lines
+        if (trimmedLine.startsWith('data: ')) {
+          const dataStr = trimmedLine.slice(6).trim();
               
               // Skip empty data or keep-alive messages
               if (!dataStr || dataStr === ':' || dataStr.startsWith(':')) {
-                continue;
+                return;
               }
               
               // Check for [DONE] signal
               if (dataStr === '[DONE]') {
-                continue;
+                return;
               }
               
               try {
@@ -311,7 +297,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
                 const choice = data.choices?.[0];
                 
                 if (!choice) {
-                  continue;
+                  return;
                 }
                 
                 const delta = choice.delta;
@@ -362,7 +348,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
                         
                         yieldedToolCalls.add(index);
                         
-                        debugLog({ NODE_ENV: this.nodeEnv }, `[${this.name}] 🔔 Early notification - tool call detected`, {
+                        debugLog({ NODE_ENV: nodeEnv }, `[${providerName}] 🔔 Early notification - tool call detected`, {
                           index,
                           name: currentToolCall.function.name,
                           timestamp: new Date().toISOString(),
@@ -381,7 +367,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
                         
                         detailYieldedToolCalls.add(index);
                         
-                        debugLog({ NODE_ENV: this.nodeEnv }, `[${this.name}] ⚡ Updated with args`, {
+                        debugLog({ NODE_ENV: nodeEnv }, `[${providerName}] ⚡ Updated with args`, {
                           index,
                           name: currentToolCall.function.name,
                           argsLength,
@@ -407,7 +393,7 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
                           detailYieldedToolCalls.add(index);
                         }
                         
-                        debugLog({ NODE_ENV: this.nodeEnv }, `[${this.name}] 🚀 Fast yield - name + args together`, {
+                        debugLog({ NODE_ENV: nodeEnv }, `[${providerName}] 🚀 Fast yield - name + args together`, {
                           index,
                           name: currentToolCall.function.name,
                           argsLength,
@@ -424,11 +410,39 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
                   finishReason = choice.finish_reason;
                 }
               } catch (e) {
-                errorLog(undefined, `[${this.name}] Failed to parse SSE event:`, dataStr, e);
+                errorLog(undefined, `[${providerName}] Failed to parse SSE event:`, dataStr, e);
               }
             }
-          }
         }
+
+      // Read and parse SSE stream
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          resetStreamTimeout();
+          
+          if (done) {
+            // Final flush: the stream may end without a trailing newline, and a UTF-8
+            // code point may straddle the last chunk. Without this the tail is dropped.
+            buffer += decoder.decode();
+            break;
+          }
+          
+          // Decode chunk and add to buffer
+          buffer += decoder.decode(value, { stream: true });
+          
+          // Split by newlines to get complete lines
+          const lines = buffer.split('\n');
+          
+          // Keep the last incomplete line in buffer
+          buffer = lines.pop() || '';
+          
+          // Process complete lines (logic lives in parseSseLine so the EOF tail reuses it)
+          for (const line of lines) yield* parseSseLine(line);
+        }
+
+        // Flush any leftover line that did not end with a newline before EOF.
+        if (buffer.trim()) yield* parseSseLine(buffer);
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError' && controller.signal.reason === 'complete_tool_call_idle') {
           errorLog(undefined, `[${this.name}] Stream ended by complete tool-call idle cutoff`);
@@ -437,6 +451,13 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
         }
       } finally {
         reader.releaseLock();
+      }
+
+      if (finishReason === 'length') {
+        warnLog(undefined, `[${this.name}] Output hit max_tokens (${Math.min(max_tokens, MAX_OUTPUT_TOKENS)}) — stream may be truncated`, {
+          toolCallCount: toolCalls.length,
+          finishReason,
+        });
       }
       
       for (const parsed of thinkingParser.flush()) {

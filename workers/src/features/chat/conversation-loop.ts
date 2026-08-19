@@ -14,6 +14,15 @@ import type { ConversationLoopConfig, IterationResult, LoopContext, LoopResult, 
 const FILE_MUTATION_TOOLS = ['write_file', 'create_file', 'edit_file', 'replace_code', 'insert_code', 'batch_replace', 'delete_file'];
 const FILE_CHANGE_REQUEST = /\b(buat|create|build|website|edit|ubah|ganti|hapus|delete|tambah|update)\b/i;
 const text = (content: ChatMessage['content']) => typeof content === 'string' ? content : content.map((part) => part.type === 'text' ? part.text : '').join('\n');
+
+/** A single LLM call exceeded `iterationTimeout` (possibly after internal retries are exhausted).
+ *  The loop retries these silently; only exhausted retries surface to the UI. */
+class IterationTimeoutError extends Error {
+  constructor(iteration: number, timeoutMs: number) {
+    super(`Iteration ${iteration} timed out after ${timeoutMs}ms`);
+    this.name = 'IterationTimeoutError';
+  }
+}
 export { DEFAULT_RATE_LIMIT_CONFIG } from './conversation-types';
 export type { ConversationLoopConfig, IterationResult, LoopContext, LoopResult, RateLimitConfig, RateLimitStrategy, StreamManager } from './conversation-types';
 
@@ -50,7 +59,9 @@ export class ConversationLoop {
         const n = iteration + 1;
         await this.delay(n);
         if (await isAborted()) throw new Error('Stream aborted');
-        const result = await this.withTimeout(this.runIteration(history, n, executionContext), n);
+        // Timeout + silent retry lives inside runIteration (per LLM call), so tool
+        // execution only ever happens once per iteration.
+        const result = await this.runIteration(history, n, executionContext);
 
         allToolCalls.push(...(result.executedToolCalls || []));
         if (result.usage) {
@@ -101,7 +112,36 @@ export class ConversationLoop {
     const nextMessages = iteration === 1 ? messages : [...messages, { role: 'system' as const, content: this.iterationPrompt(messages, iteration) }];
     const wantsFileChange = messages.some((m) => m.role === 'user' && FILE_CHANGE_REQUEST.test(text(m.content)));
     const forceToolUse = wantsFileChange && !messages.some((m) => m.role === 'tool' && FILE_MUTATION_TOOLS.some((tool) => text(m.content).includes(`"tool_name":"${tool}"`)));
-    const ai = await streamAIResponse({ provider: this.provider, streamManager: this.streamManager, planMode: this.planMode, preferredModel: this.preferredModel, reasoningEffort: this.reasoningEffort, rateLimitConfig: this.rateLimitConfig, iteration, forceToolUse, disableImageTool: this.disableImageTool, signal: context.signal }, nextMessages);
+
+    // Single LLM call bounded by iterationTimeout, retried silently on timeout up to
+    // iterationRetries ×. On timeout the in-flight stream is aborted so the provider
+    // stops billing for a stalled call; the UI never sees the retry activity.
+    // ponytail: an attempt that already streamed partial text will stream it again on
+    // retry — suppress if partial-output visibility becomes worth buffering.
+    const retries = Math.max(0, this.config.iterationRetries ?? 10);
+    let ai!: Awaited<ReturnType<typeof streamAIResponse>>;
+    for (let attempt = 0; ; attempt++) {
+      const ctl = new AbortController();
+      if (context.signal) context.signal.addEventListener('abort', () => ctl.abort());
+      const call = streamAIResponse({ provider: this.provider, streamManager: this.streamManager, planMode: this.planMode, preferredModel: this.preferredModel, reasoningEffort: this.reasoningEffort, rateLimitConfig: this.rateLimitConfig, iteration, forceToolUse, disableImageTool: this.disableImageTool, signal: ctl.signal }, nextMessages);
+      const timeoutMs = this.config.iterationTimeout;
+      try {
+        ai = await (timeoutMs > 0
+          ? Promise.race([call, new Promise<never>((_, reject) => setTimeout(() => {
+              ctl.abort();
+              reject(new IterationTimeoutError(iteration, timeoutMs));
+            }, timeoutMs))])
+          : call);
+        break;
+      } catch (error) {
+        const timedOut = error instanceof IterationTimeoutError && context.signal?.aborted !== true;
+        if (!timedOut || attempt >= retries) throw error;
+        warnLog(undefined, '[ConversationLoop] Iteration timed out, retrying silently', { iteration, attempt: attempt + 1, of: retries, session_id: context.session_id });
+        if (await context.isAborted?.()) throw new Error('Stream aborted');
+        await new Promise((r) => setTimeout(r, 1500 + attempt * 1000));
+      }
+    }
+
 
     messages.push({ role: 'assistant', content: ai.content, tool_calls: ai.toolCalls.length ? ai.toolCalls : undefined });
     this.prune(messages);
@@ -146,11 +186,6 @@ export class ConversationLoop {
     const ms = Math.min(strategy === 'fixed' ? baseDelayMs : strategy === 'linear' ? baseDelayMs * (iteration - 1) : baseDelayMs * backoffMultiplier ** (iteration - 2), maxDelayMs);
     this.streamManager?.sendEvent('rate_limit_delay', { iteration, delayMs: ms, strategy });
     await new Promise((r) => setTimeout(r, ms));
-  }
-
-  private async withTimeout<T>(promise: Promise<T>, iteration: number): Promise<T> {
-    if (this.config.iterationTimeout <= 0) return promise;
-    return Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Iteration ${iteration} timed out after ${this.config.iterationTimeout}ms`)), this.config.iterationTimeout))]);
   }
 
   private prune(messages: ChatMessage[]): void {

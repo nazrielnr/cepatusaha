@@ -51,6 +51,8 @@ export interface ChatParams {
    */
   reasoning_effort?: 'low' | 'medium' | 'high';
   tool_choice?: 'auto' | 'required';
+  /** External abort signal (loop attempt timeout / user stop) — aborts the HTTP stream. */
+  signal?: AbortSignal;
 }
 
 export interface ChatResponse {

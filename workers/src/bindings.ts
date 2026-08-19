@@ -9,6 +9,7 @@ export type Bindings = {
   CONVERSATION_LOOP_ENABLED?: string;
   MAX_LOOP_ITERATIONS?: string;
   LOOP_ITERATION_TIMEOUT?: string;
+  LOOP_ITERATION_RETRIES?: string;
   RATE_LIMIT_ENABLED?: string;
   RATE_LIMIT_BASE_DELAY_MS?: string;
   RATE_LIMIT_MAX_DELAY_MS?: string;

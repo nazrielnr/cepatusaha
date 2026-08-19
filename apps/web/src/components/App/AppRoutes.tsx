@@ -1,6 +1,7 @@
-import { Routes, Route } from 'react-router-dom'
-import { SignedIn, SignedOut } from '@clerk/clerk-react'
+import { Routes, Route, useLocation } from 'react-router-dom'
+import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from '@clerk/clerk-react'
 import { LandingPage } from '@/pages/LandingPage'
+import { AuthPage } from '@/pages/AuthPage'
 import WorkspacePage from '@/pages/WorkspacePage'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -42,19 +43,29 @@ export function AppRoutes({
   workspaceProps,
   onPageError,
 }: AppRoutesProps) {
+  const location = useLocation()
+  // Halaman yang berdiri sendiri (tanpa navbar/landing di belakangnya)
+  const isStandalone = location.pathname === '/auth' || location.pathname === '/sso-callback'
+
   return (
     <>
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
+      </Routes>
       <div>
         <SignedOut>
-          <LandingPage
-            sessions={[]}
-            isSessionLoading={false}
-            onCreateSession={async () => {
-              // Will trigger sign-in flow
-            }}
-            onSelectSession={() => {}}
-            onDeleteSession={() => {}}
-          />
+          {!isStandalone && (
+            <LandingPage
+              sessions={[]}
+              isSessionLoading={false}
+              onCreateSession={async () => {
+                // Will trigger sign-in flow
+              }}
+              onSelectSession={() => {}}
+              onDeleteSession={() => {}}
+            />
+          )}
         </SignedOut>
 
         <SignedIn>

@@ -128,6 +128,9 @@ export async function chatHandlerStream(c: HonoContext) {
     enabled: c.env.CONVERSATION_LOOP_ENABLED !== 'false',
     maxIterations: Math.min(parseInt(c.env.MAX_LOOP_ITERATIONS || '30', 10), planState.maxIterations),
     iterationTimeout: parseInt(c.env.LOOP_ITERATION_TIMEOUT || '180000', 10),
+    // Silently retry a timed-out iteration (UI never sees it); the failed call is aborted
+    // so the provider stops billing mid-stall.
+    iterationRetries: parseInt(c.env.LOOP_ITERATION_RETRIES || '10', 10),
     // Charge tokens per iteration (not per run): aborted/failed runs pay for what
     // they consumed, and parallel runs shrink the shared budget together.
     usageReporter: (cumulative) => {

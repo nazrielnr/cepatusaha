@@ -33,6 +33,8 @@ export interface ConversationLoopConfig {
   iterationTimeout: number;
   enabled: boolean;
   rateLimit?: Partial<RateLimitConfig>;
+  /** Silent retries after an iteration times out (default 10). Retries are hidden from the UI. */
+  iterationRetries?: number;
   /** Called after each iteration with tokens consumed so far in this run. Returns remaining monthly
    *  quota (<= 0 stops the run early). Implementations must charge the delta only once. */
   usageReporter?: (cumulative: { prompt_tokens: number; completion_tokens: number; total_tokens: number }) => Promise<number | undefined>;

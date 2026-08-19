@@ -33,7 +33,8 @@ NODE_ENV = "development"
 FRONTEND_URL = "http://localhost:5173"
 CONVERSATION_LOOP_ENABLED = "true"
 MAX_LOOP_ITERATIONS = "10"
-LOOP_ITERATION_TIMEOUT = "120000"
+LOOP_ITERATION_TIMEOUT = "300000"
+LOOP_ITERATION_RETRIES = "10"
 
 [[env.development.r2_buckets]]
 binding = "ASSETS_BUCKET"
@@ -47,7 +48,8 @@ NODE_ENV = "staging"
 FRONTEND_URL = "https://staging.cepatusaha.com,https://cepatusaha-staging.vercel.app"
 CONVERSATION_LOOP_ENABLED = "true"
 MAX_LOOP_ITERATIONS = "10"
-LOOP_ITERATION_TIMEOUT = "120000"
+LOOP_ITERATION_TIMEOUT = "300000"
+LOOP_ITERATION_RETRIES = "10"
 
 [[env.staging.r2_buckets]]
 binding = "ASSETS_BUCKET"
@@ -61,7 +63,8 @@ NODE_ENV = "production"
 FRONTEND_URL = "https://cepatusaha.com,https://www.cepatusaha.com,https://cepatusaha.vercel.app"
 CONVERSATION_LOOP_ENABLED = "true"
 MAX_LOOP_ITERATIONS = "10"
-LOOP_ITERATION_TIMEOUT = "120000"
+LOOP_ITERATION_TIMEOUT = "300000"
+LOOP_ITERATION_RETRIES = "10"
 
 [[env.production.r2_buckets]]
 binding = "ASSETS_BUCKET"
