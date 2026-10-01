@@ -12,7 +12,7 @@ import {
 } from './features/sessions/routes';
 import { getProfile, updateProfile } from './features/profile/routes';
 import { getSessionMessages, postSessionMessages, deleteCheckpointIndicators } from './features/sessions/messages.routes';
-import { listPublications, publishSite, deletePublication } from './features/publications/routes';
+import { listPublications, publishSite, deletePublication, getPublishedPage } from './features/publications/routes';
 import { getAnalytics } from './features/analytics/routes';
 import { getModels } from './features/models/routes';
 import { getProjectFilesHandler } from './features/files/project-files.routes';
@@ -51,6 +51,10 @@ export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth
   app.get('/api/list-publications', listPublications);
   app.post('/api/publish-site', publishSite);
   app.delete('/api/delete-publication', deletePublication);
+
+  // Public published-site serving (no auth): /published/:slug and /published/:slug/*
+  app.get('/published/:slug', getPublishedPage);
+  app.get('/published/:slug/*', getPublishedPage);
 
   // Analytics endpoint
   app.get('/api/get-analytics', getAnalytics);

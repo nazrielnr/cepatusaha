@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { SignedIn, SignedOut, AuthenticateWithRedirectCallback } from '@clerk/clerk-react'
 import { LandingPage } from '@/pages/LandingPage'
 import { AuthPage } from '@/pages/AuthPage'
@@ -44,6 +44,7 @@ export function AppRoutes({
   onPageError,
 }: AppRoutesProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   // Halaman yang berdiri sendiri (tanpa navbar/landing di belakangnya)
   const isStandalone = location.pathname === '/auth' || location.pathname === '/sso-callback'
 
@@ -59,14 +60,43 @@ export function AppRoutes({
             <LandingPage
               sessions={[]}
               isSessionLoading={false}
-              onCreateSession={async () => {
-                // Will trigger sign-in flow
+              onCreateSession={async (message: string, modelId?: string, planMode?: boolean, images?: File[]) => {
+                try {
+                  const serializedImages = images?.length
+                    ? await Promise.all(
+                        images.map(async (file) => ({
+                          name: file.name,
+                          type: file.type,
+                          dataUrl: await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader()
+                            reader.onload = () => resolve(reader.result as string)
+                            reader.onerror = () => reject(reader.error)
+                            reader.readAsDataURL(file)
+                          }),
+                        }))
+                      )
+                    : undefined
+
+                  if (message || serializedImages?.length) {
+                    sessionStorage.setItem(
+                      'pendingInitialSubmit',
+                      JSON.stringify({ message, modelId, planMode, images: serializedImages })
+                    )
+                  }
+                } catch (err) {
+                  console.error('[AppRoutes] Failed to persist pending prompt before auth redirect:', err)
+                }
+
+                navigate('/auth')
               }}
-              onSelectSession={() => {}}
+              onSelectSession={() => {
+                navigate('/auth')
+              }}
               onDeleteSession={() => {}}
             />
           )}
         </SignedOut>
+
 
         <SignedIn>
           <Routes>

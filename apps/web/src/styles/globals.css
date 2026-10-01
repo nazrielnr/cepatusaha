@@ -563,7 +563,31 @@ body {
   }
 
   .font-handwriting {
-    font-family: 'Caveat', 'Comic Sans MS', cursive;
+    font-family: 'Kalam', 'Caveat', cursive;
+  }
+  
+  .font-kalam {
+    font-family: 'Kalam', cursive;
+  }
+
+  .font-caveat {
+    font-family: 'Caveat', cursive;
+  }
+
+  .font-architects {
+    font-family: 'Architects Daughter', cursive;
+  }
+
+  .font-shadows {
+    font-family: 'Shadows Into Light', cursive;
+  }
+
+  .font-indie {
+    font-family: 'Indie Flower', cursive;
+  }
+
+  .font-marker {
+    font-family: 'Permanent Marker', cursive;
   }
 }
 

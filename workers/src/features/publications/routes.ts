@@ -1,5 +1,5 @@
 import type { HonoContext } from '../../shared/types'
-import { deletePublicationForClerkUser, listPublicationsForClerkUser, publishSiteForClerkUser } from './service'
+import { deletePublicationForClerkUser, listPublicationsForClerkUser, publishSiteForClerkUser, getPublishedPageForSlug } from './service'
 
 function authUserId(c: HonoContext) {
   const userId = c.get('auth')?.userId
@@ -22,4 +22,14 @@ export async function deletePublication(c: HonoContext) {
   if (!id) return c.json({ status: 'error', error: { code: 'INVALID_REQUEST', message: 'id is required' } }, 400)
   await deletePublicationForClerkUser(c.env, authUserId(c), id)
   return c.json({ success: true, message: 'Publication deleted' })
+}
+
+// Public serving of published sites. Latest publication wins for a given slug.
+export async function getPublishedPage(c: HonoContext) {
+  const slug = c.req.param('slug')
+  // /published/toko/about.html -> page path 'about.html'; /published/toko/sub/x.html -> 'sub/x.html'
+  const rawPath = c.req.path.replace(new RegExp(`^/published/${slug}/?`), '')
+  const page = await getPublishedPageForSlug(c.env, slug, rawPath)
+  if (!page) return c.text('Not found', 404)
+  return c.html(page)
 }

@@ -12,6 +12,8 @@ import { getProjectFiles } from '@/api/files'
 import type { ChatMessage } from '@/types/chat'
 import { AppOverlays } from './AppOverlays'
 import { deriveProjectTitle } from './appContentUtils'
+import { publishSite } from '@/api/publications'
+import type { PublishResponse } from '@/types/publication'
 import { useAppWorkspaceProps } from './useAppWorkspaceProps'
 import { useHtmlUpdate } from './useHtmlUpdate'
 
@@ -289,6 +291,34 @@ export function AppContent() {
     setShowPublishDialog(true)
   }, [])
 
+  const handlePublishWithDomain = useCallback(async (domainName: string): Promise<PublishResponse> => {
+    // Ship every generated file (html/css/js) so the deployed site is complete;
+    // the worker normalizes paths (strips src/) and deploys to Vercel.
+    const pages = previewState.projectFiles.length
+      ? previewState.projectFiles
+          .filter((f: { file_path?: string; content?: unknown }) => typeof f.file_path === 'string' && typeof f.content === 'string')
+          .map((f: { file_path: string; content: string }) => ({ path: f.file_path, content: f.content }))
+      : previewState.pageBlobMappings.length
+        ? previewState.pageBlobMappings.map(({ path, content }) => ({ path, content }))
+        : previewState.previewHtml
+          ? [{ path: 'index.html', content: previewState.previewHtml }]
+          : []
+    if (!pages.length) throw new Error('Belum ada file untuk dipublish.')
+    appState.setIsPublishing(true)
+    try {
+      const token = await requireToken()
+      const result = await publishSite(
+        { sessionId: appState.currentSession?.id ?? null, slug: domainName, pages },
+        token,
+      )
+      if (!result.success) throw new Error('Publish gagal. Silakan coba lagi.')
+      void appState.refreshHistory()
+      return result
+    } finally {
+      appState.setIsPublishing(false)
+    }
+  }, [appState, previewState.projectFiles, previewState.previewHtml, previewState.pageBlobMappings, requireToken])
+
   const workspaceProps = useAppWorkspaceProps({
     appState,
     chatState,
@@ -337,9 +367,10 @@ export function AppContent() {
       <PublishDomainDialog
         isOpen={showPublishDialog}
         onClose={() => setShowPublishDialog(false)}
-        onConfirm={appState.handlePublishWithDomain}
+        onConfirm={handlePublishWithDomain}
         isPublishing={appState.isPublishing}
         businessName={appState.profileDraft.businessName}
+        initialSlug={appState.publications?.find((p) => p.sessionId === appState.currentSession?.id)?.slug ?? null}
       />
     </>
   )

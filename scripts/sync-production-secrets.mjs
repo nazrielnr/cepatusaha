@@ -9,6 +9,7 @@ const keys = [
   'AI_DEFAULT_MODEL',
   'AI_VISION_MODEL',
   'AI_IMAGE_MODE',
+  'VERCEL_TOKEN',
 ]
 const source = 'workers/.dev.vars'
 const target = 'workers/.production.secrets'

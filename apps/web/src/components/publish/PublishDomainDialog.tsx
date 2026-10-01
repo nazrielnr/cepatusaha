@@ -1,16 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Modal } from '../Modal'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Copy, ExternalLink } from 'lucide-react'
+import type { PublishResponse } from '@/types/publication'
 
 interface PublishDomainDialogProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (domainName: string) => void
+  onConfirm: (domainName: string) => Promise<PublishResponse>
   isPublishing: boolean
   businessName?: string
+  initialSlug?: string | null
 }
 
 export function PublishDomainDialog({
@@ -19,9 +21,22 @@ export function PublishDomainDialog({
   onConfirm,
   isPublishing,
   businessName = '',
+  initialSlug,
 }: PublishDomainDialogProps) {
   const [domainName, setDomainName] = useState('')
   const [error, setError] = useState('')
+  const [deployed, setDeployed] = useState<PublishResponse | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  // Fresh form (and fresh success view) every time the dialog opens.
+  useEffect(() => {
+    if (isOpen) {
+      setDomainName(initialSlug ?? '')
+      setError('')
+      setDeployed(null)
+      setCopied(false)
+    }
+  }, [isOpen, initialSlug])
 
   // Generate suggested domain name from business name
   const suggestedName = businessName
@@ -73,14 +88,64 @@ export function PublishDomainDialog({
   }
 
   const handleConfirm = () => {
-    if (validateDomainName(domainName)) {
-      onConfirm(domainName)
-    }
+    if (!validateDomainName(domainName)) return
+    void onConfirm(domainName)
+      .then((result) => setDeployed(result))
+      .catch((err: unknown) => {
+        setError((err as Error)?.message || 'Publish gagal. Silakan coba lagi.')
+      })
+  }
+
+  const handleCopy = () => {
+    if (!deployed?.publicUrl) return
+    void navigator.clipboard.writeText(deployed.publicUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const handleUseSuggestion = () => {
     setDomainName(suggestedName)
     setError('')
+  }
+
+  if (deployed?.publicUrl) {
+    return (
+      <Modal isOpen={isOpen} onClose={onClose} title="Deploy Berhasil!">
+        <div className="space-y-6 p-6">
+          <div className="flex items-start gap-3 rounded-lg border border-green-500/30 bg-green-500/10 p-4">
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
+            <div className="min-w-0">
+              <p className="font-medium text-foreground">Website Anda sudah live di:</p>
+              <a
+                href={deployed.publicUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block break-all font-mono text-sm text-primary underline underline-offset-2"
+              >
+                {deployed.publicUrl}
+              </a>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="outline" onClick={handleCopy} disabled={copied}>
+              <Copy className="mr-2 h-4 w-4" />
+              {copied ? 'Tersalin!' : 'Salin URL'}
+            </Button>
+            <Button type="button" asChild>
+              <a href={deployed.publicUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Buka Website
+              </a>
+            </Button>
+            <Button type="button" onClick={onClose}>
+              Selesai
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    )
   }
 
   return (
@@ -92,9 +157,9 @@ export function PublishDomainDialog({
       <div className="space-y-6 p-6">
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            Pilih nama untuk domain website Anda. Domain akan berbentuk:
+            Pilih nama untuk website Anda. Situs akan tayang di:
           </p>
-          <div className="rounded-lg bg-muted/50 dark:bg-muted/30 px-4 py-3 font-mono text-sm">
+          <div className="rounded-lg bg-muted/50 dark:bg-muted/30 px-4 py-3 font-mono text-sm break-all">
             <span className="text-primary font-semibold">{domainName || 'nama-anda'}</span>
             <span className="text-muted-foreground">-xxxxx.vercel.app</span>
           </div>
@@ -146,6 +211,7 @@ export function PublishDomainDialog({
                 <li>Gunakan nama yang mudah diingat dan relevan dengan bisnis Anda</li>
                 <li>Hanya huruf kecil, angka, dan tanda hubung (-)</li>
                 <li>Minimal 3 karakter, maksimal 40 karakter</li>
+                <li>Deploy ulang dengan konten sama memakai deployment yang sama</li>
               </ul>
             </div>
           </div>
@@ -165,7 +231,7 @@ export function PublishDomainDialog({
             onClick={handleConfirm}
             disabled={isPublishing || !domainName}
           >
-            {isPublishing ? 'Publishing...' : 'Publish Website'}
+            {isPublishing ? 'Deploying...' : 'Publish Website'}
           </Button>
         </div>
       </div>

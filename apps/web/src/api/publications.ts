@@ -1,6 +1,4 @@
-import type { Profile } from '../types/profile'
 import type { PublicationRecord, PublishResponse } from '@/types/publication'
-import type { LayoutBlueprint, GeneratedCopy } from '@/types/preview'
 import type { SessionSummary } from '../types/session'
 import { handleAPIResponse } from '../utils/error-handler'
 import { fetchWithTokenRetry } from './auth'
@@ -25,90 +23,6 @@ function buildFunctionHeaders(token: string, includeJson = true): HeadersInit {
   }
 
   return headers
-}
-
-function normalizeLayoutBlueprint(value: unknown): LayoutBlueprint | null {
-  if (!value || typeof value !== 'object') {
-    return null
-  }
-  const record = value as Record<string, unknown>
-  if (!Array.isArray(record.sections)) {
-    return null
-  }
-  const rawTheme = typeof record.theme === 'object' && record.theme
-    ? (record.theme as Record<string, unknown>)
-    : undefined
-  return {
-    theme: {
-      accentColor: typeof rawTheme?.accentColor === 'string'
-        ? (rawTheme.accentColor as string)
-        : '#2563eb',
-      backgroundColor: typeof rawTheme?.backgroundColor === 'string'
-        ? (rawTheme.backgroundColor as string)
-        : undefined,
-      textColor: typeof rawTheme?.textColor === 'string'
-        ? (rawTheme.textColor as string)
-        : undefined,
-      fontFamily: typeof rawTheme?.fontFamily === 'string'
-        ? (rawTheme.fontFamily as string)
-        : undefined,
-    },
-    sections: (record.sections as unknown[])
-      .map((section) => {
-        if (!section || typeof section !== 'object') {
-          return null
-        }
-        const detail = section as Record<string, unknown>
-        const normalized: LayoutBlueprint['sections'][number] = {
-          type: typeof detail.type === 'string' ? (detail.type as string) : 'section',
-        }
-
-        if (typeof detail.heading === 'string') {
-          normalized.heading = detail.heading as string
-        }
-        if (typeof detail.subheading === 'string') {
-          normalized.subheading = detail.subheading as string
-        }
-        if (typeof detail.body === 'string') {
-          normalized.body = detail.body as string
-        }
-        if (Array.isArray(detail.highlights)) {
-          const highlights = (detail.highlights as unknown[])
-            .map((item) => (typeof item === 'string' ? item : String(item)))
-            .filter((item) => item.trim().length > 0)
-          if (highlights.length) {
-            normalized.highlights = highlights
-          }
-        }
-        if (typeof detail.image === 'string') {
-          normalized.image = detail.image as string
-        }
-        if (Array.isArray(detail.actions)) {
-          const actions = (detail.actions as unknown[])
-            .map((action) => {
-              if (!action || typeof action !== 'object') {
-        return null
-              }
-              const parsed = action as Record<string, unknown>
-              if (typeof parsed.label !== 'string') {
-        return null
-              }
-              const result: { label: string; href?: string } = { label: parsed.label }
-              if (typeof parsed.href === 'string') {
-                result.href = parsed.href
-              }
-              return result
-            })
-            .filter((action): action is { label: string; href?: string } => action !== null)
-          if (actions.length) {
-            normalized.actions = actions
-          }
-        }
-
-        return normalized
-      })
-      .filter((section): section is LayoutBlueprint['sections'][number] => Boolean(section)),
-  }
 }
 
 type SessionPayload = {
@@ -156,17 +70,13 @@ function mapSessionSummary(payload: SessionPayload): SessionSummary {
 }
 
 export type PublishSiteOptions = {
-  generatedCopy?: GeneratedCopy | null
   sessionId?: string | null
-  html?: string | null // Add HTML parameter to use existing preview
-  existingSlug?: string | null // Use existing slug to update same deployment
-  customDomainName?: string | null // Custom domain name chosen by user
+  slug?: string | null
+  pages: Array<{ path: string; content: string }>
 }
 
 export async function publishSite(
-  profile: Profile,
-  layoutBlueprint: LayoutBlueprint,
-  options: PublishSiteOptions = {},
+  options: PublishSiteOptions,
   token?: string,
 ): Promise<PublishResponse> {
   const sessionToken = ensureToken(token)
@@ -176,13 +86,9 @@ export async function publishSite(
       method: 'POST',
       headers: buildFunctionHeaders(sessionToken),
       body: JSON.stringify({
-        profile,
-        layoutBlueprint,
-        generatedCopy: options.generatedCopy ?? null,
         sessionId: options.sessionId ?? null,
-        html: options.html ?? null, // Send HTML if provided
-        existingSlug: options.existingSlug ?? null, // Send existing slug to reuse
-        customDomainName: options.customDomainName ?? null, // Send custom domain name
+        slug: options.slug ?? null,
+        pages: options.pages,
       }),
     }
   )
@@ -218,19 +124,18 @@ export async function fetchPublications(token?: string): Promise<PublicationReco
   // Extract sessionIds from publications to fetch titles
   const sessionIds = new Set<string>()
   const publications = (payload.publications ?? []).map((record) => {
-    const recordPayload = record.payload as Record<string, unknown> | null
-    const sessionId = typeof recordPayload?.sessionId === 'string' ? recordPayload.sessionId : null
+    // Workers list endpoint returns raw rows: { id, published_url, published_at, metadata }
+    const meta = (record.metadata && typeof record.metadata === 'object' ? record.metadata : {}) as Record<string, unknown>
+    const sessionId = typeof meta.sessionId === 'string' ? meta.sessionId : null
 
     if (sessionId) sessionIds.add(sessionId)
 
     return {
       id: String(record.id),
-      templateId: typeof record.templateId === 'string' ? record.templateId : typeof record.template_id === 'string' ? record.template_id : null,
-      publicUrl: typeof record.publicUrl === 'string' ? record.publicUrl : typeof record.public_url === 'string' ? record.public_url : '',
-      status: typeof record.status === 'string' ? record.status : 'PUBLISHED',
+      publicUrl: typeof record.publicUrl === 'string' ? record.publicUrl : typeof record.published_url === 'string' ? record.published_url : '',
+      status: 'PUBLISHED',
       publishedAt: typeof record.publishedAt === 'string' ? record.publishedAt : typeof record.published_at === 'string' ? record.published_at : null,
-      slug: typeof record.slug === 'string' ? record.slug : null,
-      layoutBlueprint: normalizeLayoutBlueprint(record.layoutBlueprint ?? record.layout_snapshot ?? null),
+      slug: typeof meta.slug === 'string' ? meta.slug : null,
       sessionId,
       sessionTitle: null as string | null, // Will be filled below
     }

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog'
 
 import type { PublicationRecord } from '@/types/publication'
+import { API_BASE_URL } from '@/lib/env'
 
 type PublicationHistoryProps = {
   loading: boolean
@@ -50,6 +51,12 @@ function extractDomain(value?: string | null) {
   } catch {
     return value
   }
+}
+
+function absolutePublicUrl(publicUrl?: string | null) {
+  if (!publicUrl) return ''
+  if (/^https?:\/\//i.test(publicUrl)) return publicUrl
+  return `${API_BASE_URL}${publicUrl.startsWith('/') ? publicUrl : `/${publicUrl}`}`
 }
 
 export function PublicationHistory({ loading, error, records, onRefresh, onClose, onDelete }: PublicationHistoryProps) {
@@ -222,7 +229,7 @@ export function PublicationHistory({ loading, error, records, onRefresh, onClose
             <div className="space-y-3">
               {records.map((record) => {
                   const publishedAt = formatPublishedAt(record.publishedAt)
-                  const domain = extractDomain(record.publicUrl) ?? 'Domain tidak tersedia'
+                  const domain = extractDomain(absolutePublicUrl(record.publicUrl)) ?? 'Domain tidak tersedia'
                   const displayTitle = record.sessionTitle || 'Publikasi Website'
 
           return (
@@ -246,7 +253,7 @@ export function PublicationHistory({ loading, error, records, onRefresh, onClose
                             className="h-auto w-full justify-between gap-2 md:gap-3 rounded-lg border-primary/30 bg-primary/5 px-2 py-2 md:px-3 text-xs md:text-sm font-medium text-primary hover:bg-primary/10"
                           >
                             <a
-                              href={record.publicUrl}
+                              href={absolutePublicUrl(record.publicUrl)}
                               target="_blank"
                               rel="noreferrer"
                               className="flex w-full items-center justify-between gap-2 md:gap-3 overflow-hidden"

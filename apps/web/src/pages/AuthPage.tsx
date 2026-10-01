@@ -8,7 +8,6 @@ import {
   EyeOff,
   Mail,
   Lock,
-  User,
   ArrowRight,
   ArrowLeft,
   Sparkles,
@@ -230,7 +229,6 @@ function SignInForm() {
 function SignUpForm({ onRequireVerification }: { onRequireVerification: () => void }) {
   const { isLoaded, signUp, setActive } = useSignUp()
   const navigate = useNavigate()
-  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -244,22 +242,14 @@ function SignUpForm({ onRequireVerification }: { onRequireVerification: () => vo
     setError(null)
     setLoading(true)
     try {
-      const result = await signUp.create({
-        emailAddress: email.trim(),
-        password,
-        ...(name.trim() ? { firstName: name.trim() } : {}),
-      })
+      const result = await signUp.create({ emailAddress: email.trim(), password })
       if (result.status === 'complete' && result.createdSessionId) {
         await setActive({ session: result.createdSessionId })
         navigate('/', { replace: true })
         return
       }
-      if (result.verifications?.emailAddress?.status === 'unverified') {
-        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
-        onRequireVerification()
-        return
-      }
-      setError('Pendaftaran belum selesai. Silakan periksa kembali data Anda.')
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' })
+      onRequireVerification()
     } catch (err) {
       setError(clerkErrorMessage(err))
     } finally {
@@ -286,17 +276,6 @@ function SignUpForm({ onRequireVerification }: { onRequireVerification: () => vo
     <form onSubmit={handleSubmit} className="space-y-4">
       <GoogleButton onClick={handleGoogle} loading={loading} />
       <Divider />
-
-      <Field label="Nama Lengkap" icon={<User className="h-4 w-4" />}>
-        <input
-          type="text"
-          autoComplete="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Nama Anda atau bisnis Anda"
-          className={inputClass}
-        />
-      </Field>
 
       <Field label="Email" icon={<Mail className="h-4 w-4" />}>
         <input

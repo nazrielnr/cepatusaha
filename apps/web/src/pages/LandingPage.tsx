@@ -3,6 +3,8 @@ import { Navbar } from '@/components/landing/Navbar'
 import { Hero } from '@/components/landing/Hero'
 import { ProjectHistorySection } from '@/components/ProjectHistorySection'
 import { CommunityShowcase } from '@/components/landing/CommunityShowcase'
+import { QuoteSection } from '@/components/landing/QuoteSection'
+import { CtaSection } from '@/components/landing/CtaSection'
 import { Footer } from '@/components/landing/Footer'
 
 interface LandingPageProps {
@@ -73,7 +75,7 @@ export function LandingPage({
       {/* Root Fixed Parallax Giant Text (Desktop Only: Anchored at the bottom) */}
       <div
         ref={revealContainerRef}
-        className="hidden md:flex fixed bottom-0 left-0 right-0 z-0 pointer-events-none select-none items-center justify-center px-4 bg-muted/30 border-t border-border overflow-hidden"
+        className="hidden md:flex fixed bottom-0 left-0 right-0 z-0 pointer-events-none select-none items-center justify-center px-4 bg-background overflow-hidden"
         style={{
           height: '20vw',
           maxHeight: '260px',
@@ -89,12 +91,12 @@ export function LandingPage({
           ref={textRef}
           className="relative z-10 text-[14vw] font-black tracking-tight leading-none text-foreground/15 dark:text-foreground/20 whitespace-nowrap select-none text-center will-change-transform"
         >
-          cepatusaha
+          CepatUsaha
         </span>
       </div>
 
       {/* Main Foreground Scrollable Content (All regular sections including Footer) */}
-      <div className="relative z-10 bg-background border-b border-border">
+      <div className="relative z-10 bg-background md:border-b border-border">
         <Navbar />
 
         <main>
@@ -116,16 +118,22 @@ export function LandingPage({
           )}
 
           <CommunityShowcase />
+
+          {/* Quote Section ("Bermula dari karya terbaik...") */}
+          <QuoteSection />
+
+          {/* CTA Section (Left: Ajakan Text, Right: Input Message) */}
+          <CtaSection onGenerate={handleGenerate} isGenerating={isGenerating} />
         </main>
 
         {/* Footer as normal regular section */}
         <Footer />
 
         {/* Mobile Static Giant Text Section (No Parallax on mobile) */}
-        <div className="md:hidden relative w-full py-10 sm:py-14 px-4 bg-muted/30 border-t border-border flex items-center justify-center overflow-hidden select-none">
+        <div className="md:hidden relative w-full py-10 sm:py-14 px-4 bg-background border-t border-border flex items-center justify-center overflow-hidden select-none">
           <div className="absolute inset-0 bg-[radial-gradient(#94a3b8_1px,transparent_1px)] dark:bg-[radial-gradient(#64748b_1px,transparent_1px)] [background-size:20px_20px] opacity-30" />
           <span className="relative z-10 text-[13.5vw] font-black tracking-tight leading-none text-foreground/15 dark:text-foreground/20 whitespace-nowrap select-none text-center">
-            cepatusaha
+            CepatUsaha
           </span>
         </div>
       </div>
@@ -143,3 +151,4 @@ export function LandingPage({
     </div>
   )
 }
+

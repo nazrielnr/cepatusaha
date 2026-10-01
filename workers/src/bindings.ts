@@ -29,4 +29,6 @@ export type Bindings = {
   ASSETS_BUCKET: R2Bucket;
   ASSETS_PUBLIC_URL?: string;
   REALTIME_ROOM: DurableObjectNamespace;
+  VERCEL_TOKEN: string;
+  VERCEL_TEAM_ID?: string;
 };

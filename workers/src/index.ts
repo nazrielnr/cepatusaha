@@ -34,7 +34,7 @@ app.use('*', corsMiddleware());
 app.use('*', async (c, next) => {
   const path = c.req.path;
   
-  if (path === '/' || path === '/api/health' || path === '/api/models' || path === '/models' || path.startsWith('/api/assets/object/')) {
+  if (path === '/' || path === '/api/health' || path === '/api/models' || path === '/models' || path.startsWith('/api/assets/object/') || path.startsWith('/published/')) {
     return next();
   }
   

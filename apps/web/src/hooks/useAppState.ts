@@ -43,6 +43,7 @@ export function useAppState({ requireToken, enabled }: UseAppStateOptions) {
     loading: false,
     error: null
   })
+  const [isPublishing, setIsPublishing] = useState(false)
 
   // Session management
   const {
@@ -155,9 +156,8 @@ export function useAppState({ requireToken, enabled }: UseAppStateOptions) {
     // Legacy compatibility - these will be removed
     historyState,
     analyticsState,
-    sessionDeploymentSlug: null,
-    isPublishing: false,
-    handlePublishWithDomain: async () => {},
+    isPublishing,
+    setIsPublishing,
     handleDeletePublication: async () => {},
     handleSessionSelect: selectSession,
     handleDeleteSession: deleteSession,
