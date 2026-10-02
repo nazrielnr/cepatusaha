@@ -9,7 +9,9 @@ const INSPECT_STYLE_ID = '__inspect-styles__'
 /**
  * Remove all inspect mode artifacts from the iframe document
  */
-export function cleanInspectArtifacts(doc: Document): void {
+export function cleanInspectArtifacts(doc: Document | Element | null): void {
+  if (!doc || typeof (doc as any).querySelectorAll !== 'function') return
+
   // Remove all inspect outline classes from elements
   const elementsWithClass = doc.querySelectorAll(`.${INSPECT_OUTLINE_CLASS}`)
   elementsWithClass.forEach(el => {
@@ -22,11 +24,12 @@ export function cleanInspectArtifacts(doc: Document): void {
   })
 
   // Remove inject style tag
-  const styleEl = doc.getElementById(INSPECT_STYLE_ID)
+  const styleEl = typeof (doc as Document).getElementById === 'function'
+    ? (doc as Document).getElementById(INSPECT_STYLE_ID)
+    : doc.querySelector?.(`#${INSPECT_STYLE_ID}`)
   if (styleEl) {
     styleEl.remove()
   }
-
 }
 
 /**

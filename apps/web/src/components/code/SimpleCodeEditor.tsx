@@ -8,11 +8,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { cn } from '@/lib/utils'
-import { X, Save, Loader2, Edit3, Eye } from 'lucide-react'
+import { Check, Copy, Edit3, ExternalLink, Eye, Image as ImageIcon, Loader2, Save, X } from 'lucide-react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { File } from '@/types/preview'
 import { apiPathUrl, jsonHeaders } from '@/lib/apiClient'
+import { isAssetFilePath } from '@/utils/virtualAssetResolver'
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -142,6 +143,108 @@ export function SimpleCodeEditor({
             // Focus textarea when switching to edit mode
             setTimeout(() => textareaRef.current?.focus(), 50)
         }
+    }
+
+    const [copiedType, setCopiedType] = useState<'path' | 'html' | 'url' | null>(null)
+    const isImage = isAssetFilePath(file.file_path)
+
+    const handleCopy = (text: string, type: 'path' | 'html' | 'url') => {
+        navigator.clipboard.writeText(text)
+        setCopiedType(type)
+        setTimeout(() => setCopiedType(null), 2000)
+    }
+
+    if (isImage) {
+        return (
+            <div className={cn("flex flex-col h-full bg-white", className)}>
+                {/* Header Area */}
+                <div className="flex items-center h-[42px] px-3 border-b border-gray-100 justify-between">
+                    <div className="flex items-center gap-2.5">
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-white rounded-t-lg -mb-px relative z-10 border border-gray-200 border-b-white min-w-[100px] shadow-[0_-1px_2px_rgba(0,0,0,0.02)]">
+                            <ImageIcon className="w-3.5 h-3.5 text-primary" />
+                            <span className="text-xs font-medium text-gray-800 truncate max-w-[200px]">
+                                {file.file_path}
+                            </span>
+                            <button
+                                onClick={onClose}
+                                className="text-muted-foreground hover:text-destructive rounded p-0.5 hover:bg-destructive/10 transition-colors ml-1"
+                                aria-label="Close editor"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => handleCopy(file.file_path, 'path')}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100 transition-colors"
+                        >
+                            {copiedType === 'path' ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-gray-500" />}
+                            <span>{copiedType === 'path' ? 'Path Copied!' : 'Copy Path'}</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Image Content */}
+                <div className="flex-1 overflow-auto p-6 flex flex-col items-center justify-center bg-gray-50/50">
+                    <div className="max-w-xl w-full flex flex-col items-center gap-4">
+                        <div className="p-3 bg-white rounded-xl border border-gray-200 shadow-sm flex items-center justify-center max-w-full">
+                            <img
+                                src={file.content}
+                                alt={file.file_path}
+                                className="max-h-[48vh] max-w-full object-contain rounded-lg"
+                            />
+                        </div>
+
+                        <div className="w-full bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
+                            <div>
+                                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">File Path (Relative)</span>
+                                <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 text-xs font-mono text-gray-800">
+                                    <span className="truncate">{file.file_path}</span>
+                                    <button
+                                        onClick={() => handleCopy(file.file_path, 'path')}
+                                        className="text-gray-500 hover:text-gray-900 ml-2"
+                                        title="Copy Path"
+                                    >
+                                        {copiedType === 'path' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">HTML Snippet</span>
+                                <div className="flex items-center justify-between mt-1 bg-gray-50 rounded-lg px-3 py-1.5 border border-gray-200 text-xs font-mono text-gray-800">
+                                    <span className="truncate">&lt;img src="{file.file_path}" alt=""&gt;</span>
+                                    <button
+                                        onClick={() => handleCopy(`<img src="${file.file_path}" alt="">`, 'html')}
+                                        className="text-gray-500 hover:text-gray-900 ml-2"
+                                        title="Copy HTML"
+                                    >
+                                        {copiedType === 'html' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="pt-1 flex items-center justify-between text-xs text-muted-foreground border-t border-gray-100">
+                                <span>Penyimpanan Asset</span>
+                                {file.content && file.content.startsWith('http') && (
+                                    <a
+                                        href={file.content}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-primary hover:underline"
+                                    >
+                                        <span>Buka di tab baru</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )
     }
 
     const language = getLanguage(file.file_type)

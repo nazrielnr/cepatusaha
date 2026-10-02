@@ -45,8 +45,40 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
   const [tool, setTool] = useState<Tool>('pan')
   const width = WIDTH[viewportMode]
   const height = HEIGHT[viewportMode]
-  const urls = useMemo(() => pages.map((page, i) => ({ ...page, url: URL.createObjectURL(new Blob([page.html], { type: 'text/html' })), x: i * (width + GAP), y: 0, w: width, h: height })), [pages, width, height])
-  useEffect(() => () => urls.forEach(page => URL.revokeObjectURL(page.url)), [urls])
+
+  // Stable blob URL cache to prevent iframe reload flicker/races
+  const blobUrlCache = useRef<Map<string, { html: string; url: string }>>(new Map())
+  const urls = useMemo(() => {
+    return pages.map((page, i) => {
+      const cached = blobUrlCache.current.get(page.path)
+      let url = cached?.url
+      if (!cached || cached.html !== page.html) {
+        if (cached?.url) {
+          try { URL.revokeObjectURL(cached.url) } catch {}
+        }
+        url = URL.createObjectURL(new Blob([page.html], { type: 'text/html' }))
+        blobUrlCache.current.set(page.path, { html: page.html, url })
+      }
+      return {
+        ...page,
+        url: url!,
+        x: i * (width + GAP),
+        y: 0,
+        w: width,
+        h: height,
+      }
+    })
+  }, [pages, width, height])
+
+  useEffect(() => {
+    return () => {
+      blobUrlCache.current.forEach(item => {
+        try { URL.revokeObjectURL(item.url) } catch {}
+      })
+      blobUrlCache.current.clear()
+    }
+  }, [])
+
   useEffect(() => { setBoxes({}); setZ({}); zTop.current = 1; setSelected([]); setActiveFrame(null) }, [viewportMode])
   useEffect(() => {
     setSelected(prev => prev.filter(path => urls.some(u => u.path === path)))
@@ -79,7 +111,32 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
     bringFront(path)
     setSelected([path])
     setActiveIframe(path)
+    onSelectPage?.(path)
   }
+
+  useEffect(() => {
+    const el = boardRef.current
+    if (!el) return
+    const handleWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement)?.closest?.('iframe')) return
+      e.preventDefault()
+      if (actionRef.current) return
+      const rect = el.getBoundingClientRect()
+      const factor = e.ctrlKey || e.metaKey ? 1 - e.deltaY * 0.004 : 1 - e.deltaY * 0.0015
+      setZoom(prevZoom => {
+        const next = clamp(prevZoom * factor, 0.15, 2)
+        const cx = e.clientX - rect.left
+        const cy = e.clientY - rect.top
+        setPan(prevPan => ({
+          x: cx - ((cx - prevPan.x) / prevZoom) * next,
+          y: cy - ((cy - prevPan.y) / prevZoom) * next,
+        }))
+        return next
+      })
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
 
   const fit = useCallback(() => {
     const el = boardRef.current
@@ -109,22 +166,10 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
     <div
       ref={boardRef}
       className={cn('relative h-full w-full overflow-hidden bg-[radial-gradient(circle,hsl(var(--muted-foreground)/0.28)_1px,transparent_1px)] [background-size:20px_20px] bg-muted/20', tool === 'pan' ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair')}
-      onWheel={(e) => {
-        if ((e.target as HTMLElement).closest('iframe')) return
-        e.preventDefault()
-        if (actionRef.current) return
-        const rect = e.currentTarget.getBoundingClientRect()
-        const factor = e.ctrlKey || e.metaKey ? 1 - e.deltaY * 0.004 : 1 - e.deltaY * 0.0015
-        const next = clamp(zoom * factor, 0.15, 2)
-        const cx = e.clientX - rect.left
-        const cy = e.clientY - rect.top
-        setPan({ x: cx - ((cx - pan.x) / zoom) * next, y: cy - ((cy - pan.y) / zoom) * next })
-        setZoom(next)
-      }}
       onPointerDown={(e) => {
         if (actionRef.current || (e.target as HTMLElement).closest('button,iframe,[data-group]')) return
         if (tool === 'select') {
-          e.preventDefault()
+          if (e.cancelable) e.preventDefault()
           setSelected([])
           setActiveFrame(null)
           setMarquee(null)
@@ -179,7 +224,8 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
             className="pointer-events-none absolute z-20 bg-transparent"
             style={{ left: group.x - 6, top: group.y - 6, width: group.w + 12, height: group.h + 12 }}
             onPointerDown={(e) => {
-              e.preventDefault(); e.stopPropagation()
+              if (e.cancelable) e.preventDefault()
+              e.stopPropagation()
               actionRef.current = 'group-drag'; setAction('group-drag')
               const start = Object.fromEntries(selected.map(path => [path, frameByPath.get(path)!]))
               const move = moveFrames(selected, start, e.clientX, e.clientY)
@@ -196,7 +242,8 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
           const bind = (iframe: HTMLIFrameElement) => { iframeEls.current[u.path] = iframe }
           const drag = (e: React.PointerEvent) => {
             if ((e.target as HTMLElement).closest('[data-resize]')) return
-            e.preventDefault(); e.stopPropagation()
+            if (e.cancelable) e.preventDefault()
+            e.stopPropagation()
             const paths = selected.length > 1 && isSelected ? selected : [u.path]
             setSelected(paths)
             paths.forEach(bringFront)
@@ -209,7 +256,8 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
             window.addEventListener('pointerup', up)
           }
           const resize = (dir: ResizeDir) => (e: React.PointerEvent) => {
-            e.preventDefault(); e.stopPropagation()
+            if (e.cancelable) e.preventDefault()
+            e.stopPropagation()
             const paths = selected.length > 1 && isSelected ? selected : [u.path]
             setSelected(paths)
             paths.forEach(bringFront)
@@ -258,19 +306,28 @@ export function CanvasBoard({ pages, currentPage: _currentPage, viewportMode, is
           const corner = 'h-3 w-3 rounded-full border-2 border-primary bg-background shadow-md hover:scale-125 hover:bg-primary hover:border-white transition-all duration-200'
           return (
             <section key={u.path} className="absolute" style={{ left: b.x, top: b.y, width: b.w, zIndex: z[u.path] || 1 }} onPointerDownCapture={() => { bringFront(u.path); setActiveIframe(u.path) }}>
-              <button onPointerDown={drag} onClick={() => onSelectPage?.(`/${u.path}`)} className="mb-3 block max-w-full origin-bottom-left cursor-move truncate rounded-md bg-background/80 px-2 py-1 text-left text-xs font-medium text-foreground shadow-sm hover:bg-accent" style={{ transform: `scale(${1 / zoom})` }}>{u.path}</button>
-              <div className={cn('group relative overflow-visible bg-transparent', (tool === 'select' || isSelected) && 'cursor-move', isInspectMode && 'cursor-crosshair')} style={{ width: b.w, height: b.h }} onPointerDown={drag} onMouseEnter={() => onSelectPage?.(`/${u.path}`)}>
+              <button onPointerDown={drag} onClick={() => activateFrame(u.path)} className="mb-3 block max-w-full origin-bottom-left cursor-move truncate rounded-md bg-background/80 px-2 py-1 text-left text-xs font-medium text-foreground shadow-sm hover:bg-accent" style={{ transform: `scale(${1 / zoom})` }}>{u.path}</button>
+              <div className={cn('group relative overflow-visible bg-transparent', (tool === 'select' || isSelected) && 'cursor-move', isInspectMode && 'cursor-crosshair')} style={{ width: b.w, height: b.h }} onPointerDown={drag}>
                 {(isSelected || isActive) && <div className="pointer-events-none absolute -inset-[2px] z-30 rounded-md border-2 border-primary/80" />}
                 <div className="h-full w-full overflow-hidden border bg-background shadow-xl">
                   <iframe
+                    key={`${u.path}-${u.url}`}
                     title={`Canvas ${u.path}`}
+                    data-page-path={u.path}
                     src={u.url}
                     sandbox="allow-same-origin allow-scripts allow-forms"
                     className={cn('block h-full w-full border-0 bg-background', (action || tool === 'select' || activeFrame !== u.path) && 'pointer-events-none', isInspectMode && activeFrame === u.path && 'cursor-crosshair')}
                     onPointerDown={() => activateFrame(u.path)}
                     onMouseEnter={(e) => bind(e.currentTarget)}
-                    onFocus={(e) => { bind(e.currentTarget); activateFrame(u.path) }}
-                    onLoad={(e) => bind(e.currentTarget)}
+                    onFocus={(e) => bind(e.currentTarget)}
+                    onLoad={(e) => {
+                      bind(e.currentTarget)
+                      if (activeFrame === u.path) {
+                        iframeRef.current = e.currentTarget
+                        setIframeRef(e.currentTarget)
+                        window.dispatchEvent(new Event('canvas-iframe-focus'))
+                      }
+                    }}
                   />
                   {activeFrame !== u.path && !action && tool !== 'select' && <button className="absolute inset-0 z-10 cursor-pointer bg-transparent" onClick={(e) => { e.stopPropagation(); activateFrame(u.path) }} aria-label={`Activate ${u.path}`} />}
                 </div>

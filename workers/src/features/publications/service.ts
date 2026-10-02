@@ -2,7 +2,7 @@ import type { Bindings } from '../../bindings'
 import { createSql } from '../../db'
 import { ValidationError } from '../../shared/errors'
 import { getSessionDbUserId } from '../sessions/service'
-import { deployToVercel } from './vercel'
+import { deployToVercel, resolveProjectDomain, type VercelDeployment } from './vercel'
 
 export type PublishedPage = { path: string; content: string }
 
@@ -21,66 +21,148 @@ export async function listPublicationsForClerkUser(env: Bindings, clerkUserId: s
   `
 }
 
+// In-memory lock to prevent race conditions during concurrent deploys for the same workspace/project
+const inFlightPublishes = new Map<string, Promise<any>>()
+
 export async function publishSiteForClerkUser(env: Bindings, clerkUserId: string, body: Record<string, unknown>) {
   const userId = await getSessionDbUserId(env, clerkUserId)
-  const sql = createSql(env)
   const sessionId = str(body.sessionId) ?? null
-  const slug = slugify(str(body.slug) || 'site')
-  const publicUrl = `/published/${slug}`
-  const pages = publishablePages(body.pages)
-  if (!pages.length) throw new ValidationError('pages wajib diisi (minimal satu halaman HTML)')
-  const contentHash = await sha1Hex(JSON.stringify(pages))
-  // Same content as the last publish of this slug: reuse the existing Vercel
-  // deployment (same id/url) instead of creating a new one.
-  const existingRows = await sql`
-    select p.metadata->>'vercelUrl' as vercel_url,
-           p.metadata->>'vercelDeploymentId' as vercel_deployment_id,
-           p.metadata->>'content_hash' as content_hash,
-           p.published_at
-    from publications p
-    join projects pr on pr.id = p.project_id
-    where pr.user_id = ${userId} and p.published_url = ${publicUrl}
-    order by p.published_at desc
-    limit 1
-  `
-  const existing = existingRows[0]
-  if (existing?.content_hash === contentHash && existing.vercel_url) {
-    return { success: true, publicUrl: existing.vercel_url, publishedAt: existing.published_at, slug, deploymentId: existing.vercel_deployment_id ?? null, reused: true }
-  }
-  // Deploy to Vercel first: no publication row (and no orphan project) if deploy fails.
-  // Vercel reuses the same deployment (same id/url) when files are unchanged.
-  const vercel = await deployToVercel(env, slug, pages)
-  // Fallback copy for /published/<slug> serving on this worker: links point at
-  // the worker paths because there is no directory rewrite here.
-  const fallbackPages = rewriteLinksForWorkers(slug, pages)
-  const projectRows = sessionId
-    ? await sql`select project_id from sessions where id = ${sessionId} and user_id = ${userId} limit 1`
-    : []
-  let projectId = projectRows[0]?.project_id ?? null
-  if (!projectId) {
-    const rows = await sql`
-      insert into projects (user_id, title, description)
-      values (${userId}, ${slug}, null)
-      returning id
-    `
-    projectId = rows[0].id
+  const lockKey = `${userId}:${sessionId || str(body.projectId) || 'default'}`
+
+  if (inFlightPublishes.has(lockKey)) {
+    return await inFlightPublishes.get(lockKey)!
   }
 
-  const metadata = JSON.stringify({
-    pages: fallbackPages,
-    sessionId,
-    slug,
-    vercelUrl: vercel.url,
-    vercelDeploymentId: vercel.deploymentId,
-    contentHash,
-  })
-  const rows = await sql`
-    insert into publications (project_id, published_url, metadata)
-    values (${projectId}, ${publicUrl}, ${metadata}::jsonb)
-    returning id, published_url, published_at, metadata
-  `
-  const row = rows[0]
-  return { success: true, publicUrl: vercel.url, publishedAt: row.published_at, slug, deploymentId: vercel.deploymentId }
+  const publishPromise = (async () => {
+    const sql = createSql(env)
+    const slug = slugify(str(body.slug) || 'site')
+    const pages = publishablePages(body.pages)
+    if (!pages.length) throw new ValidationError('pages wajib diisi (minimal satu halaman HTML)')
+    const contentHash = await sha1Hex(JSON.stringify(pages))
+
+    if (!env.VERCEL_TOKEN) {
+      throw new ValidationError('VERCEL_TOKEN tidak dikonfigurasi. Direct worker hosting dinonaktifkan.')
+    }
+
+    // Resolve project_id and workspace identifier
+    let projectId = str(body.projectId) ?? null
+    if (!projectId && sessionId) {
+      const projectRows = await sql`select project_id from sessions where id = ${sessionId} and user_id = ${userId} limit 1`
+      projectId = projectRows[0]?.project_id ?? null
+    }
+    if (!projectId) {
+      const rows = await sql`
+        insert into projects (user_id, title, description)
+        values (${userId}, ${slug}, null)
+        returning id
+      `
+      projectId = rows[0].id
+    }
+
+    // Resolve project and existing publication from database
+    const existingRows = await sql`
+      select p.id,
+             p.published_url,
+             p.published_at,
+             p.metadata->>'vercelUrl' as vercel_url,
+             p.metadata->>'vercelDomain' as vercel_domain,
+             p.metadata->>'vercelDeploymentId' as vercel_deployment_id,
+             p.metadata->>'vercelProjectId' as vercel_project_id,
+             p.metadata->>'vercelProjectName' as vercel_project_name,
+             p.metadata->>'contentHash' as content_hash,
+             p.metadata->>'slug' as slug
+      from publications p
+      where p.project_id = ${projectId}
+      order by p.published_at desc
+      limit 1
+    `
+    const existing = existingRows[0]
+
+    // Use established Vercel project name or slug
+    const vercelProjectName = existing?.vercel_project_name || slug
+
+    // Deploy latest files to Vercel (target: production updates the project)
+    const vercel = await deployToVercel(env, vercelProjectName, pages, {
+      existingProjectId: existing?.vercel_project_id || null,
+      slug,
+    })
+
+    const metadata = JSON.stringify({
+      pages,
+      sessionId,
+      slug,
+      vercelUrl: vercel.domainUrl,
+      vercelDomain: vercel.domainUrl,
+      vercelDeploymentId: vercel.deploymentId,
+      vercelDeploymentUrl: vercel.deploymentUrl,
+      vercelProjectId: vercel.projectId,
+      vercelProjectName: vercel.projectName,
+      deploymentStatus: 'vercel_success',
+      deploymentError: null,
+      contentHash,
+    })
+
+    let publishedAt: string
+
+    if (existing?.id) {
+      // UPDATE KE DB JIKA PROJECT SUDAH PERNAH DEPLOY: Update existing publication record in DB
+      const updateRows = await sql`
+        update publications
+        set published_url = ${vercel.domainUrl},
+            published_at = now(),
+            metadata = ${metadata}::jsonb
+        where id = ${existing.id}
+        returning id, published_url, published_at, metadata
+      `
+      publishedAt = updateRows[0]?.published_at ? String(updateRows[0].published_at) : new Date().toISOString()
+    } else {
+      // Insert new publication record in DB
+      const insertRows = await sql`
+        insert into publications (project_id, published_url, metadata)
+        values (${projectId}, ${vercel.domainUrl}, ${metadata}::jsonb)
+        returning id, published_url, published_at, metadata
+      `
+      publishedAt = insertRows[0]?.published_at ? String(insertRows[0].published_at) : new Date().toISOString()
+    }
+
+    // Persist deployment state to session metadata in DB
+    if (sessionId) {
+      await sql`
+        update sessions
+        set metadata = jsonb_set(
+          coalesce(metadata, '{}'::jsonb),
+          '{deployment}',
+          ${JSON.stringify({
+            deployed: true,
+            domainUrl: vercel.domainUrl,
+            slug,
+            deploymentId: vercel.deploymentId,
+            updatedAt: new Date().toISOString(),
+          })}::jsonb
+        )
+        where id = ${sessionId}
+      `
+    }
+
+    return {
+      success: true,
+      publicUrl: vercel.domainUrl,
+      vercelUrl: vercel.domainUrl,
+      domainUrl: vercel.domainUrl,
+      publishedAt,
+      slug,
+      deploymentId: vercel.deploymentId ?? null,
+      deploymentStatus: 'vercel_success' as const,
+      reused: Boolean(existing?.id),
+    }
+  })()
+
+  inFlightPublishes.set(lockKey, publishPromise)
+  try {
+    return await publishPromise
+  } finally {
+    inFlightPublishes.delete(lockKey)
+  }
 }
 
 export async function deletePublicationForClerkUser(env: Bindings, clerkUserId: string, publicationId: string) {
@@ -92,33 +174,8 @@ export async function deletePublicationForClerkUser(env: Bindings, clerkUserId: 
   `
 }
 
-// Resolve a published page. Pages are stored in metadata.pages as {path, content}.
-// rawPath '' or 'index.html' serves the index page; unknown paths fall back to
-// index only when they have no .html extension (SPA-style routes), else 404 via caller.
-export async function getPublishedPageForSlug(env: Bindings, slug: string, rawPath: string): Promise<string | null> {
-  const rows = await createSql(env)`
-    select metadata
-    from publications
-    where published_url = ${`/published/${slug}`}
-    order by published_at desc
-    limit 1
-  `
-  const meta = rows[0]?.metadata as { html?: string | null; pages?: PublishedPage[] | null } | undefined
-  if (!meta) return null
-  const pages = meta.pages?.length ? meta.pages : meta.html ? [{ path: 'index.html', content: meta.html }] : []
-  if (!pages.length) return null
-  const wanted = (rawPath || 'index.html').replace(/^\/+/, '')
-  const byPath = new Map<string, string>()
-  let indexContent: string | undefined
-  for (const p of pages) {
-    if (typeof p.content !== 'string') continue
-    const key = p.path.replace(/^\/+/, '')
-    byPath.set(key, p.content)
-    // The preview treats any path ending in index.html (e.g. src/index.html) as the entry page
-    if (indexContent === undefined && key.endsWith('index.html')) indexContent = p.content
-  }
-  if (byPath.has(wanted)) return byPath.get(wanted) ?? null
-  if (indexContent !== undefined) return indexContent
+// Direct worker publication hosting is disabled. Websites are served directly from Vercel.
+export async function getPublishedPageForSlug(_env: Bindings, _slug: string, _rawPath: string): Promise<{ content: string; path: string } | null> {
   return null
 }
 
@@ -142,29 +199,87 @@ function resolvePagePath(currentPath: string, target: string): string {
   return parts.join('/')
 }
 
+/**
+ * Normalizes asset references in HTML/CSS files so that if any HTML/CSS
+ * refers to an absolute asset URL (/api/assets/object/...), it is rewritten
+ * to the relative path of that asset in the deployment.
+ */
+function normalizeAssetReferences(pages: PublishedPage[]): PublishedPage[] {
+  const assetMap = new Map<string, string>()
+  for (const p of pages) {
+    if (typeof p.content === 'string' && (p.content.startsWith('http://') || p.content.startsWith('https://') || p.content.startsWith('/api/assets/object/'))) {
+      const targetRelPath = p.path.replace(/^\/+/, '')
+      assetMap.set(p.content, targetRelPath)
+      try {
+        const url = new URL(p.content)
+        assetMap.set(url.pathname, targetRelPath)
+      } catch {}
+    }
+  }
+
+  if (assetMap.size === 0) return pages
+
+  return pages.map((page) => {
+    if (!/\.(html?|css|js|jsx|ts|tsx)$/i.test(page.path) && page.path !== 'index.html') {
+      return page
+    }
+
+    let updatedContent = page.content
+    for (const [assetUrl, relPath] of assetMap.entries()) {
+      if (updatedContent.includes(assetUrl)) {
+        updatedContent = updatedContent.split(assetUrl).join(relPath)
+      }
+    }
+    return { ...page, content: updatedContent }
+  })
+}
+
 // Normalize generated files for deployment: paths arrive like 'src/index.html'
 // or '/src/about.html'; the site root must be 'index.html' for Vercel/any host
 // to serve it, so strip leading slashes and the generator's 'src/' prefix.
 // Also drop the preview-only nav interceptor; internal links stay relative so
 // multi-page navigation works on the deployed host.
 function publishablePages(pages: unknown): PublishedPage[] {
-  return (Array.isArray(pages) ? pages : []).flatMap((entry: unknown): PublishedPage[] => {
+  const result: PublishedPage[] = []
+
+  for (const entry of (Array.isArray(pages) ? pages : [])) {
     const page = entry as PublishedPage
-    if (typeof page?.path !== 'string' || typeof page?.content !== 'string') return []
-    return [{
-      path: page.path.replace(/^\/+/, '').replace(/^(\.\/)?src\//, ''),
+    if (typeof page?.path !== 'string' || typeof page?.content !== 'string') continue
+    let cleanPath = page.path.replace(/^\/+/, '').replace(/^(\.\/)?src\//, '')
+    // Exclude .gitkeep placeholders and internal artifacts
+    if (cleanPath.endsWith('.gitkeep') || cleanPath.startsWith('.artifacts/')) continue
+    // Exclude package.json: having package.json with a build script causes Vercel to treat
+    // static deployments as Node.js apps and wipes out unbuilt static files
+    if (cleanPath === 'package.json') continue
+
+    // Flatten public/ files to root (e.g. public/robots.txt -> robots.txt)
+    // A directory named 'public' causes Vercel to treat it as the webroot, 404ing index.html
+    if (cleanPath.startsWith('public/')) {
+      cleanPath = cleanPath.replace(/^public\//, '')
+    }
+
+    result.push({
+      path: cleanPath,
       content: page.content.replace(/<script data-preview-nav="true">[\s\S]*?<\/script>/, ''),
-    }]
-  })
+    })
+  }
+
+  return normalizeAssetReferences(result)
 }
 
 function rewriteLinksForWorkers(slug: string, pages: PublishedPage[]): PublishedPage[] {
   const known = new Set(pages.map((p) => p.path))
-  return pages.map(({ path, content }) => ({
-    path,
-    content: content.replace(/(href\s*=\s*)(["'])(.*?)\2/gi, (m, attr: string, q: string, href: string) => {
+  return pages.map(({ path, content }) => {
+    if (!/\.(html?|css|js)$/i.test(path) && path !== 'index.html') return { path, content }
+
+    let rewritten = content.replace(/(href\s*=\s*)(["'])(.*?)\2/gi, (m, attr: string, q: string, href: string) => {
       const resolved = resolvePagePath(path, href)
       return resolved && known.has(resolved) ? `${attr}${q}/published/${slug}/${resolved}${q}` : m
-    }),
-  }))
+    })
+    rewritten = rewritten.replace(/(src\s*=\s*)(["'])(.*?)\2/gi, (m, attr: string, q: string, src: string) => {
+      const resolved = resolvePagePath(path, src)
+      return resolved && known.has(resolved) ? `${attr}${q}/published/${slug}/${resolved}${q}` : m
+    })
+    return { path, content: rewritten }
+  })
 }

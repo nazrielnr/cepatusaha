@@ -20,10 +20,19 @@ export type SessionModeEntry = {
 
 export type SessionStatus = 'active' | 'completed' | 'abandoned'
 
+export type SessionDeployment = {
+  deployed: boolean
+  domainUrl: string
+  slug: string
+  deploymentId?: string | null
+  updatedAt?: string
+}
+
 export type SessionData = {
   id: string
   title: string
   project_id?: string
+  deployment?: SessionDeployment | null
   messages: ChatMessage[]
   conversationStep: ConversationStep
   profileDraft: Profile

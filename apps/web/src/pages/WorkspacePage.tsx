@@ -43,7 +43,7 @@ interface WorkspacePageProps {
   isPublishing: boolean
   onPublishRequest: () => void
   onInspectAskAI?: (elementData: ElementData) => void
-  onHtmlUpdate?: (html: string) => void
+  onHtmlUpdate?: (html: string, newFiles?: any[], pagePath?: string) => void
   previewProgress?: number
   previewStatus?: string
   sessionId?: string

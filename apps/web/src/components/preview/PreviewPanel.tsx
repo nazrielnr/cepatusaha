@@ -24,7 +24,7 @@ type PreviewPanelProps = {
   previewProgress?: number
   previewStatus?: string
   onInspectAskAI?: (elementData: ElementData) => void
-  onHtmlUpdate?: (html: string) => void
+  onHtmlUpdate?: (html: string, newFiles?: any[], pagePath?: string) => void
   sessionId?: string
   getToken?: () => Promise<string | null>
   projectId?: string
@@ -138,13 +138,14 @@ export function PreviewPanel({
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
+      if (isInspectMode) return
       if (event.source !== iframeRef.current?.contentWindow) return
       if (event.data?.type !== 'PREVIEW_NAVIGATE' || typeof event.data.href !== 'string') return
       navigateToPage?.(event.data.href)
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [navigateToPage])
+  }, [navigateToPage, isInspectMode])
 
   useEffect(() => {
     if (isStreaming) thumbnailSavedForSessionRef.current = null
@@ -212,7 +213,7 @@ export function PreviewPanel({
   }, [planningData, resetPlanningStore, onGenerateRequest, onPlanningGenerate])
 
   const canvasPages = useMemo(() => pageBlobMappings.flatMap(m => typeof m.content === 'string' ? [{ path: m.path, html: m.content }] : []), [pageBlobMappings])
-  const { selected, dirty, applyPatch, clearSelection, save } = useCanvasEditor({ enabled: isInspectMode && viewMode !== 'code' && hasPreview, iframeRef, onHtmlUpdate })
+  const { selected, dirty, applyPatch, clearSelection, revert, save } = useCanvasEditor({ enabled: isInspectMode && viewMode !== 'code' && hasPreview, iframeRef, onHtmlUpdate })
   const [iframeRect, setIframeRect] = useState<DOMRect | null>(null)
 
   useEffect(() => {
@@ -229,7 +230,23 @@ export function PreviewPanel({
       <PreviewToolbar isPlanningMode={isPlanningMode} planningPhase={planningPhase} planningData={planningData} activePlanningTab={activePlanningTab} setActiveTab={setActiveTab} handleGenerate={handleGenerate} isGenerating={isGenerating} viewMode={viewMode} setViewMode={setViewMode} viewportMode={viewportMode} setInternalViewportMode={setInternalViewportMode} toggleInspectMode={toggleInspectMode} hasPreview={hasPreview} isInspectMode={isInspectMode} onRefresh={onRefresh} handleRefresh={handleRefresh} isRefreshing={isRefreshing} onPublishRequest={onPublishRequest} canPublish={canPublish} isPublishing={isPublishing} pagePaths={pageBlobMappings.map(m => m.path)} currentPage={currentPage} navigateToPage={navigateToPage} />
       <div className="flex min-h-0 flex-1">
         <PreviewStage viewMode={viewMode} projectId={projectId} userId={userId} files={files} onRefresh={onRefresh} getToken={getToken} previewState={previewState} isPlanningMode={isPlanningMode} hasPreview={hasPreview} onPlanningSubmit={onPlanningSubmit} viewportMode={viewportMode} isInspectMode={isInspectMode} iframeRef={iframeRef} previewUrl={previewUrl} setIframeRef={setIframeRef} canvasPages={canvasPages} currentPage={currentPage} navigateToPage={navigateToPage} />
-        {isInspectMode && viewMode !== 'code' && hasPreview && selected && <CanvasEditPopup selected={selected} iframeRect={iframeRect} dirty={dirty} onClose={clearSelection} onPatch={applyPatch} onSave={save} onAskAI={handleInspectorAskAI} />}
+        {isInspectMode && viewMode !== 'code' && hasPreview && selected && (
+          <CanvasEditPopup
+            selected={selected}
+            iframeRect={iframeRect}
+            dirty={dirty}
+            onClose={clearSelection}
+            onCancel={revert}
+            onPatch={applyPatch}
+            onSave={save}
+            onAskAI={handleInspectorAskAI}
+            getToken={getToken}
+            userId={userId}
+            projectId={projectId}
+            onRefresh={onRefresh}
+            files={files}
+          />
+        )}
       </div>
     </div>
   )

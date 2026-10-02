@@ -52,6 +52,30 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     parameters: { type: 'object', properties: { path: { type: 'string', description: 'File path' }, confirm: { type: 'boolean', description: 'Must be true' } }, required: ['path', 'confirm'] },
   },
   {
+    name: 'copy_file',
+    description: 'Copy a file to another path in the project workspace. Use this to copy uploaded user image artifacts (e.g. from .artifacts/images/...) into public assets (e.g. assets/ or src/assets/images/).',
+    parameters: {
+      type: 'object',
+      properties: {
+        source_path: { type: 'string', description: 'Source file path (e.g. .artifacts/images/photo.png)' },
+        dest_path: { type: 'string', description: 'Destination file path (e.g. assets/photo.png or src/assets/images/photo.png)' }
+      },
+      required: ['source_path', 'dest_path']
+    }
+  },
+  {
+    name: 'rename_file',
+    description: 'Rename or move a file to a new path in the project workspace.',
+    parameters: {
+      type: 'object',
+      properties: {
+        old_path: { type: 'string', description: 'Existing file path' },
+        new_path: { type: 'string', description: 'New destination file path' }
+      },
+      required: ['old_path', 'new_path']
+    }
+  },
+  {
     name: 'ask_user',
     description: 'Ask user for missing required external data/input. Stops the loop.',
     parameters: { type: 'object', properties: { purpose: { type: 'string', description: 'Why input is needed' }, fields: { type: 'array', description: 'Input fields', items: { type: 'object', properties: { name: { type: 'string' }, label: { type: 'string' }, type: { type: 'string' }, required: { type: 'boolean' } }, required: ['name', 'label', 'type'] } } }, required: ['purpose', 'fields'] },

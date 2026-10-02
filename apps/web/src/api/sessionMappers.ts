@@ -67,6 +67,15 @@ export function mapSessionFromBackend(backendSession: SessionPayload, messages: 
     updatedAt: backendSession.updated_at,
     messages: deduplicateMessages(messages.map(mapMessagePayload)),
     previewThumbnail: typeof backendSession.preview_thumbnail === 'string' ? backendSession.preview_thumbnail : undefined,
+    deployment: backendSession.deployment && typeof backendSession.deployment === 'object' && backendSession.deployment.deployed
+      ? {
+          deployed: Boolean(backendSession.deployment.deployed),
+          domainUrl: String(backendSession.deployment.domainUrl || ''),
+          slug: String(backendSession.deployment.slug || ''),
+          deploymentId: backendSession.deployment.deploymentId ? String(backendSession.deployment.deploymentId) : null,
+          updatedAt: backendSession.deployment.updatedAt ? String(backendSession.deployment.updatedAt) : undefined,
+        }
+      : null,
   }
 }
 

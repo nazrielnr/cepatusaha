@@ -16,6 +16,7 @@ import { publishSite } from '@/api/publications'
 import type { PublishResponse } from '@/types/publication'
 import { useAppWorkspaceProps } from './useAppWorkspaceProps'
 import { useHtmlUpdate } from './useHtmlUpdate'
+import { getProjectAssetFiles, resolveAssetUrlsInHtml, resolveAssetUrlsInCss } from '@/utils/virtualAssetResolver'
 
 /**
  * Creating a session from the landing page navigates with a full page reload,
@@ -287,14 +288,15 @@ export function AppContent() {
 
   // Handle publish request
   const handlePublishRequest = useCallback(() => {
-    // First time publishing, show domain name dialog
+    // Refresh history so latest publications are loaded
+    void appState.refreshHistory()
     setShowPublishDialog(true)
-  }, [])
+  }, [appState])
 
   const handlePublishWithDomain = useCallback(async (domainName: string): Promise<PublishResponse> => {
     // Ship every generated file (html/css/js) so the deployed site is complete;
     // the worker normalizes paths (strips src/) and deploys to Vercel.
-    const pages = previewState.projectFiles.length
+    const rawPages = previewState.projectFiles.length
       ? previewState.projectFiles
           .filter((f: { file_path?: string; content?: unknown }) => typeof f.file_path === 'string' && typeof f.content === 'string')
           .map((f: { file_path: string; content: string }) => ({ path: f.file_path, content: f.content }))
@@ -303,12 +305,18 @@ export function AppContent() {
         : previewState.previewHtml
           ? [{ path: 'index.html', content: previewState.previewHtml }]
           : []
+    const pages = rawPages
     if (!pages.length) throw new Error('Belum ada file untuk dipublish.')
     appState.setIsPublishing(true)
     try {
       const token = await requireToken()
       const result = await publishSite(
-        { sessionId: appState.currentSession?.id ?? null, slug: domainName, pages },
+        {
+          sessionId: appState.currentSession?.id ?? null,
+          projectId: appState.currentSession?.project_id ?? null,
+          slug: domainName,
+          pages,
+        },
         token,
       )
       if (!result.success) throw new Error('Publish gagal. Silakan coba lagi.')
@@ -319,6 +327,19 @@ export function AppContent() {
     }
   }, [appState, previewState.projectFiles, previewState.previewHtml, previewState.pageBlobMappings, requireToken])
 
+  const handleManualRefresh = useCallback(async () => {
+    const projectId = appState.currentSession?.project_id
+    const sessionId = appState.currentSession?.id
+    if (!projectId || !sessionId) return
+    try {
+      const token = await requireToken()
+      const files = await getProjectFiles(projectId, token)
+      handlePreviewRefresh(files, sessionId)
+    } catch (error) {
+      console.error('[AppContent] Failed to manually refresh preview:', error)
+    }
+  }, [appState.currentSession?.project_id, appState.currentSession?.id, requireToken, handlePreviewRefresh])
+
   const workspaceProps = useAppWorkspaceProps({
     appState,
     chatState,
@@ -327,6 +348,7 @@ export function AppContent() {
     requireToken,
     handlePublishRequest,
     handleHtmlUpdate,
+    handleManualRefresh,
   })
 
   const handleSelectSession = useCallback(async (sessionId: string) => {
@@ -364,14 +386,29 @@ export function AppContent() {
       <AppOverlays activeOverlay={activeOverlay} setActiveOverlay={setActiveOverlay} appState={appState} userId={user?.id} getToken={getToken} />
 
       {/* Publish Domain Dialog */}
-      <PublishDomainDialog
-        isOpen={showPublishDialog}
-        onClose={() => setShowPublishDialog(false)}
-        onConfirm={handlePublishWithDomain}
-        isPublishing={appState.isPublishing}
-        businessName={appState.profileDraft.businessName}
-        initialSlug={appState.publications?.find((p) => p.sessionId === appState.currentSession?.id)?.slug ?? null}
-      />
+      {(() => {
+        const currentProjectId = appState.currentSession?.project_id
+        const currentSessionId = appState.currentSession?.id
+        const existingPublication = (appState.publications && (
+          appState.publications.find((p) => currentProjectId && p.projectId === currentProjectId) ||
+          appState.publications.find((p) => currentSessionId && p.sessionId === currentSessionId)
+        )) ?? (appState.currentSession?.deployment?.deployed ? {
+          publicUrl: appState.currentSession.deployment.domainUrl,
+          slug: appState.currentSession.deployment.slug,
+        } : null)
+
+        return (
+          <PublishDomainDialog
+            isOpen={showPublishDialog}
+            onClose={() => setShowPublishDialog(false)}
+            onConfirm={handlePublishWithDomain}
+            isPublishing={appState.isPublishing}
+            businessName={appState.profileDraft.businessName}
+            initialSlug={existingPublication?.slug || appState.publications?.find((p) => p.sessionId === appState.currentSession?.id)?.slug || null}
+            existingPublication={existingPublication}
+          />
+        )
+      })()}
     </>
   )
 }

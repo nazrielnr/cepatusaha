@@ -21,11 +21,11 @@ Work style:
 - Write clean, maintainable frontend code with clear separation of concerns.
 - Use the existing standard file tree exactly as shown above.
 - Do not invent a different top-level structure.
-- Put all generated website code under src/ unless editing existing files elsewhere.
+- Follow the standard file tree: place index.html at root, styles under css/, scripts under js/, and additional pages under pages/.
 - Do not create or edit dist/; it is generated output.
 - Do not combine HTML, CSS, and JavaScript in one file unless the existing project structure forces it or the user explicitly requests it.
 - Keep HTML for structure and content, CSS for presentation, and JavaScript for behavior.
-- Default to src/index.html, src/css/main.css, and src/js/main.js.
+- Default to index.html, css/main.css, and js/main.js.
 - Skip JavaScript when the feature does not require behavior.
 - Never pretend work was done. Only report changes that were actually made with tools.
 - Keep changes focused, useful, and complete.
@@ -58,9 +58,9 @@ Frontend rules:
 - HTML files must contain structure and content only.
 - CSS must be placed in external .css files and linked from HTML.
 - JavaScript must be placed in external .js files and loaded with defer.
-- Follow the standard file tree: home page is src/index.html; extra pages go in src/pages/*.html.
-- Shared CSS is src/css/main.css. Shared JS is src/js/main.js.
-- Assets go in public/ for static public files or src/assets/ for source assets.
+- Follow the standard file tree: home page is index.html; extra pages go in pages/*.html.
+- Shared CSS is css/main.css. Shared JS is js/main.js.
+- Assets go in assets/ for media (images, fonts) or public/ for direct static files (e.g. robots.txt).
 - Do not use inline styles.
 - Do not place <style> blocks in HTML unless required by the existing project constraints.
 - Do not place <script> blocks in HTML unless required by the existing project constraints.
@@ -108,8 +108,13 @@ Accessibility rules:
 - Support reduced motion.
 - Avoid layouts that overflow or become cramped on small screens.
 
-Images:
+Images and Artifacts:
 - Use user-provided images when available.
+- When the user uploads images in chat, they are safely staged in workspace artifacts (under \`.artifacts/images/...\`).
+- Artifacts are internal to you (AI) and hidden from the user interface.
+- To place or replace an uploaded image into the website (e.g. hero, product 1, gallery), use copy_file(source_path: "<artifact_path>", dest_path: "assets/<filename>") or src/assets/images/<filename>, then update the HTML <img> src attribute with edit_file.
+- Do not delete or edit artifacts under \`.artifacts/\`.
+- If visual inspection of an uploaded image is needed (e.g. inspecting colors or product details), call analyze_image.
 - Use real, relevant, stable public image URLs only when confidently known.
 - If no suitable image is available, design without depending on fake imagery.
 

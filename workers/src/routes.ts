@@ -71,6 +71,17 @@ export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth
 
   app.post('/api/assets/upload', uploadAsset);
   app.post('/api/images/upload', uploadImage);
+  app.options('/api/assets/object/*', (c) => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Max-Age': '86400',
+      },
+    });
+  });
   app.get('/api/assets/object/*', getAsset);
   app.get('/api/realtime/:room', (c) => {
     const id = c.env.REALTIME_ROOM.idFromName(c.req.param('room'));

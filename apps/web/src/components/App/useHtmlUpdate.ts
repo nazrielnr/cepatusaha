@@ -8,7 +8,7 @@ type UseHtmlUpdateOptions = {
 }
 
 export function useHtmlUpdate({ appState, previewState, getToken }: UseHtmlUpdateOptions) {
-  return useCallback(async (html: string) => {
+  return useCallback(async (html: string, newFiles?: any[], pagePath?: string) => {
     if (!html || html.trim().length === 0) {
       console.error('[handleHtmlUpdate] Empty HTML, skipping update')
       return
@@ -19,7 +19,8 @@ export function useHtmlUpdate({ appState, previewState, getToken }: UseHtmlUpdat
       return
     }
 
-        previewState.updateHtml(html)
+    const targetFilePath = pagePath || previewState.currentPage || 'index.html'
+    previewState.updateHtml(html, targetFilePath, newFiles)
 
     const sessionId = appState.activeSessionId
     const projectId = appState.currentSession?.project_id
@@ -36,10 +37,24 @@ export function useHtmlUpdate({ appState, previewState, getToken }: UseHtmlUpdat
         return
       }
 
+      if (newFiles && newFiles.length > 0) {
+        for (const nf of newFiles) {
+          try {
+            await fetch(apiPathUrl('/files/update'), {
+              method: 'POST',
+              headers: jsonHeaders(token),
+              body: JSON.stringify({ project_id: projectId, file_path: nf.file_path, content: nf.content }),
+            })
+          } catch (e) {
+            console.warn('[handleHtmlUpdate] Error saving asset file:', nf.file_path, e)
+          }
+        }
+      }
+
       const response = await fetch(apiPathUrl('/files/update'), {
         method: 'POST',
         headers: jsonHeaders(token),
-        body: JSON.stringify({ project_id: projectId, file_path: 'index.html', content: html }),
+        body: JSON.stringify({ project_id: projectId, file_path: targetFilePath, content: html }),
       })
 
       if (!response.ok) {
@@ -47,8 +62,6 @@ export function useHtmlUpdate({ appState, previewState, getToken }: UseHtmlUpdat
         console.error('[handleHtmlUpdate] API Error Response:', { status: response.status, statusText: response.statusText, errorData })
         throw new Error(`Failed to save HTML: ${response.statusText} - ${JSON.stringify(errorData)}`)
       }
-
-            previewState.refresh?.()
     } catch (error) {
       console.error('[handleHtmlUpdate] Error saving HTML:', error)
     }

@@ -3,7 +3,7 @@ import { Navbar } from '@/components/landing/Navbar'
 import { Hero } from '@/components/landing/Hero'
 import { ProjectHistorySection } from '@/components/ProjectHistorySection'
 import { CommunityShowcase } from '@/components/landing/CommunityShowcase'
-import { QuoteSection } from '@/components/landing/QuoteSection'
+// import { QuoteSection } from '@/components/landing/QuoteSection'
 import { CtaSection } from '@/components/landing/CtaSection'
 import { Footer } from '@/components/landing/Footer'
 
@@ -119,8 +119,8 @@ export function LandingPage({
 
           <CommunityShowcase />
 
-          {/* Quote Section ("Bermula dari karya terbaik...") */}
-          <QuoteSection />
+          {/* Quote Section ("Bermula dari karya terbaik...") - Disabled */}
+          {/* <QuoteSection /> */}
 
           {/* CTA Section (Left: Ajakan Text, Right: Input Message) */}
           <CtaSection onGenerate={handleGenerate} isGenerating={isGenerating} />

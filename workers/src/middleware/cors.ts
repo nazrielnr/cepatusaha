@@ -40,12 +40,12 @@ function envOrigins(env: Bindings): string[] {
 }
 
 function allowedOrigins(env: Bindings): string[] {
-  return [...(env.NODE_ENV === 'development' ? DEV_ORIGINS : []), ...PROD_ORIGINS, ...envOrigins(env)];
+  return [...DEV_ORIGINS, ...PROD_ORIGINS, ...envOrigins(env)];
 }
 
 function isAllowed(origin: string | undefined, env: Bindings, configured?: CorsOptions['origin']): boolean {
   if (!origin) return false;
-  if (env.NODE_ENV === 'development' && /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
   if (typeof configured === 'function') return configured(origin);
   if (typeof configured === 'string') return configured === '*' || configured === origin;
   if (Array.isArray(configured)) return configured.includes('*') || configured.includes(origin);

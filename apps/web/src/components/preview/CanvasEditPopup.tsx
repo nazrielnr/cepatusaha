@@ -1,16 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Bot, Box, ChevronDown, Image as ImageIcon, Info, Link2, MousePointerClick, Save, Type, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Bot, Box, ChevronDown, Image as ImageIcon, Info, Link2, Loader2, MousePointerClick, RotateCcw, Save, Type, Upload, X } from 'lucide-react'
 import type { CanvasEditorPatch, CanvasEditorSelection } from '@/utils/canvasEditorBridge'
 import { cn } from '@/lib/utils'
+import { uploadProductImage } from '@/api/assets'
+import { updateProjectFile } from '@/api/files'
+import { findAssetUrl } from '@/utils/virtualAssetResolver'
 
 type Props = {
   selected: CanvasEditorSelection
   iframeRect: DOMRect | null
   dirty: boolean
   onClose: () => void
+  onCancel?: () => void
   onPatch: (patch: CanvasEditorPatch) => void
-  onSave: () => void
+  onSave: (newFiles?: any[]) => void
   onAskAI: (selection: CanvasEditorSelection) => void
+  getToken?: () => Promise<string | null>
+  userId?: string
+  projectId?: string
+  onRefresh?: () => void
+  files?: any[]
 }
 
 const textTags = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'P', 'SPAN', 'A', 'BUTTON', 'LI', 'LABEL', 'TD', 'TH'])
@@ -61,10 +70,16 @@ const getTagInfo = (tag: string) => {
   return { icon: Box, label: 'Element' }
 }
 
-export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch, onSave, onAskAI }: Props) {
+export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onCancel, onPatch, onSave, onAskAI, getToken, userId, projectId, onRefresh, files }: Props) {
   const [text, setText] = useState(selected.text)
-  const [src, setSrc] = useState(selected.src || '')
+  const [assetPath, setAssetPath] = useState(selected.assetPath || selected.src || '')
+  const [previewSrc, setPreviewSrc] = useState(selected.src || selected.assetPath || '')
   const [alt, setAlt] = useState(selected.alt || '')
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingAssetsRef = useRef<Map<string, string>>(new Map())
+  const isClosingRef = useRef(false)
   const isText = textTags.has(selected.tag)
   const isImage = selected.tag === 'IMG'
 
@@ -74,14 +89,95 @@ export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch,
   const { icon: TagIcon, label: tagLabel } = getTagInfo(selected.tag)
 
   useEffect(() => {
+    isClosingRef.current = false
     setText(selected.text)
-    setSrc(selected.src || '')
+    setAssetPath(selected.assetPath || selected.src || '')
+    setPreviewSrc(selected.src || selected.assetPath || '')
     setAlt(selected.alt || '')
-  }, [selected.id, selected.text, selected.src, selected.alt])
+    setUploadError(null)
+    pendingAssetsRef.current.clear()
+  }, [selected.id])
+
+  const resolvedPreview = useMemo(() => {
+    if (!previewSrc) return ''
+    if (/^(https?:)?\/\//i.test(previewSrc) || previewSrc.startsWith('data:') || previewSrc.startsWith('blob:')) {
+      return previewSrc
+    }
+    if (files && files.length > 0) {
+      const found = findAssetUrl(previewSrc, '', files as any)
+      if (found?.url) return found.url
+    }
+    return previewSrc
+  }, [previewSrc, files])
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Instant local preview for immediate visual feedback
+    const objectUrl = URL.createObjectURL(file)
+    setPreviewSrc(objectUrl)
+    setIsUploading(true)
+    setUploadError(null)
+
+    try {
+      const token = getToken ? await getToken() : null
+      if (!token) throw new Error('Sesi tidak valid atau belum masuk. Silakan login kembali.')
+      const uploadedUrl = await uploadProductImage(userId || '', file, token)
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'image.png'
+      const virtualPath = `assets/${safeName}`
+
+      // Queue the asset to be saved when user presses Save
+      pendingAssetsRef.current.set(virtualPath, uploadedUrl)
+
+      setAssetPath(virtualPath)
+      setPreviewSrc(uploadedUrl)
+      onPatch({ src: uploadedUrl, assetPath: virtualPath })
+    } catch (err: any) {
+      setPreviewSrc(selected.src || selected.assetPath || '')
+      setUploadError(err?.message || 'Gagal mengunggah gambar.')
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      try { URL.revokeObjectURL(objectUrl) } catch {}
+    }
+  }
+
+  const handleSave = () => {
+    isClosingRef.current = true
+    const pendingList: Array<{ file_path: string; content: string; file_type?: string }> = []
+    for (const [vPath, uUrl] of pendingAssetsRef.current.entries()) {
+      pendingList.push({ file_path: vPath, content: uUrl, file_type: 'image' })
+    }
+    pendingAssetsRef.current.clear()
+    onSave(pendingList)
+  }
+
+  const handleCancel = () => {
+    isClosingRef.current = true
+    pendingAssetsRef.current.clear()
+    if (onCancel) {
+      onCancel()
+    } else {
+      onClose()
+    }
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (dirty) handleCancel()
+        else onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [dirty, onClose])
 
   const pos = useMemo(() => {
     const w = 300
-    const h = isImage ? 340 : 300
+    const h = isImage ? 380 : 300
     const leftBase = (iframeRect?.left || 0) + selected.rect.x + selected.rect.width + 12
     const topBase = (iframeRect?.top || 0) + selected.rect.y
     return {
@@ -109,7 +205,7 @@ export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch,
             </p>
           </div>
         </div>
-        <button onClick={onClose} className="ml-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" aria-label="Close editor">
+        <button onClick={dirty ? handleCancel : onClose} className="ml-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" aria-label="Close editor">
           <X className="h-4 w-4" />
         </button>
       </header>
@@ -120,7 +216,9 @@ export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch,
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}
-              onBlur={() => onPatch({ text })}
+              onBlur={() => {
+                if (!isClosingRef.current) onPatch({ text })
+              }}
               className="flex min-h-[80px] w-full resize-none rounded-md border border-border bg-transparent px-3 py-2 text-sm shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
             />
           </CollapsibleSection>
@@ -128,25 +226,71 @@ export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch,
 
         {isImage && (
           <CollapsibleSection title="Image" icon={ImageIcon} defaultExpanded={true}>
-            {src && (
+            {resolvedPreview && (
               <div className="overflow-hidden rounded-md border">
-                <img src={src} alt="" className="h-28 w-full object-cover" />
+                <img src={resolvedPreview} alt="" className="h-28 w-full object-cover" />
               </div>
             )}
             <input
-              value={src}
-              onChange={e => setSrc(e.target.value)}
-              onBlur={() => onPatch({ src })}
-              placeholder="Image URL"
-              className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm outline-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
             />
-            <input
-              value={alt}
-              onChange={e => setAlt(e.target.value)}
-              onBlur={() => onPatch({ alt })}
-              placeholder="Alt text"
-              className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm outline-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
-            />
+            <button
+              type="button"
+              disabled={isUploading}
+              onClick={() => fileInputRef.current?.click()}
+              className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/70 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  <span>Mengunggah...</span>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-3.5 w-3.5 text-primary" />
+                  <span>Unggah Gambar</span>
+                </>
+              )}
+            </button>
+            {uploadError && (
+              <p className="text-[11px] text-destructive leading-tight px-0.5">{uploadError}</p>
+            )}
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Lokasi / Path Asset</label>
+              <input
+                value={assetPath}
+                onChange={e => setAssetPath(e.target.value)}
+                onBlur={() => {
+                  if (isClosingRef.current) return
+                  const val = assetPath.trim()
+                  const isRemote = /^(https?:)?\/\//i.test(val) || val.startsWith('data:') || val.startsWith('blob:')
+                  if (isRemote) {
+                    setPreviewSrc(val)
+                    onPatch({ src: val, assetPath: '' })
+                  } else {
+                    onPatch({ src: val, assetPath: val })
+                  }
+                }}
+                placeholder="assets/gambar.png"
+                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm outline-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Teks Alternatif (Alt)</label>
+              <input
+                value={alt}
+                onChange={e => setAlt(e.target.value)}
+                onBlur={() => {
+                  if (!isClosingRef.current) onPatch({ alt })
+                }}
+                placeholder="Deskripsi gambar..."
+                className="flex h-9 w-full rounded-md border border-border bg-transparent px-3 py-1 text-sm shadow-sm outline-none transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
           </CollapsibleSection>
         )}
 
@@ -171,12 +315,31 @@ export function CanvasEditPopup({ selected, iframeRect, dirty, onClose, onPatch,
       </div>
 
       <footer className="flex items-center gap-2 border-t p-3 bg-muted/20">
-        <button onClick={() => onAskAI(selected)} className="inline-flex h-9 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border bg-background px-4 py-2 text-sm font-medium shadow-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20">
-          <Bot className="mr-2 h-4 w-4" />
+        <button
+          type="button"
+          onClick={() => onAskAI(selected)}
+          className="inline-flex h-9 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-xs font-medium shadow-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
+        >
+          <Bot className="mr-1.5 h-4 w-4" />
           Ask AI
         </button>
-        <button onClick={onSave} disabled={!dirty} className="inline-flex h-9 flex-1 items-center justify-center whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50">
-          <Save className="mr-2 h-4 w-4" />
+        {dirty && (
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="inline-flex h-9 flex-1 items-center justify-center whitespace-nowrap rounded-md border border-border bg-background px-3 py-2 text-xs font-medium shadow-sm outline-none transition-colors hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 focus:border-destructive focus:outline-none focus:ring-1 focus:ring-destructive/20"
+          >
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            Batal
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirty}
+          className="inline-flex h-9 flex-1 items-center justify-center whitespace-nowrap rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+        >
+          <Save className="mr-1.5 h-4 w-4" />
           Save
         </button>
       </footer>

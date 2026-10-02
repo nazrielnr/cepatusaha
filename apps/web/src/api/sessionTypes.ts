@@ -5,6 +5,7 @@ import type { ConversationStep, SessionModeEntry, SessionStatus } from '../types
 export type SessionPayload = {
   id: string
   title: string
+  project_id?: string | null
   status?: string
   conversation_step?: string
   profile_draft?: Record<string, unknown> | null
@@ -14,6 +15,13 @@ export type SessionPayload = {
   created_at: string
   updated_at: string
   preview_thumbnail?: string
+  deployment?: {
+    deployed?: boolean
+    domainUrl?: string
+    slug?: string
+    deploymentId?: string | null
+    updatedAt?: string
+  } | null
 }
 export type MessagePayload = {
   id: string

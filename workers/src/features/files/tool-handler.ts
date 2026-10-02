@@ -5,6 +5,7 @@ import { ensureDefaultWorkspace } from './default-workspace'
 import { listSkill, loadSkills } from '../skills/service'
 import { getDesign, searchDesign } from '../designs/service'
 import { analyzeImageTool } from '../chat/image-context'
+import { isPathTraversal, isProtectedPath } from './path-security'
 
 export interface FunctionCallStartEvent { type: 'function_call_start'; id: string; name: string; args: ToolParams; file_path?: string }
 export interface FunctionCallCompleteEvent { type: 'function_call_complete'; id: string; success: boolean; data?: ToolValue; error?: string; execution_time_ms?: number }
@@ -50,6 +51,8 @@ export class FunctionCallHandler {
         case 'write_file':
         case 'create_file': {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
+          if (isPathTraversal(filePath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(filePath)) return fail(toolCall.name, 'Cannot write to protected file path')
           const content = str(p.content)
           if (content === undefined) return fail(toolCall.name, 'content is required')
           if (await aborted(context)) return fail(toolCall.name, 'Tool execution aborted', 'ABORTED')
@@ -63,6 +66,7 @@ export class FunctionCallHandler {
         }
         case 'read_file': {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
+          if (isPathTraversal(filePath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
           const file = await readFile(this.env, projectId, filePath)
           if (!file) return fail(toolCall.name, 'File not found')
           const lines = (file.content ?? '').split('\n')
@@ -81,6 +85,8 @@ export class FunctionCallHandler {
         }
         case 'delete_file': {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
+          if (isPathTraversal(filePath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(filePath)) return fail(toolCall.name, 'Cannot delete protected file path')
           if (p.confirm !== true) return fail(toolCall.name, 'confirm must be true')
           await deleteFile(this.env, projectId, filePath)
           return ok(toolCall.name, { file_path: filePath })
@@ -104,6 +110,8 @@ export class FunctionCallHandler {
         }
         case 'replace_code': {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
+          if (isPathTraversal(filePath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(filePath)) return fail(toolCall.name, 'Cannot edit protected file path')
           const oldCode = str(p.old_code) ?? str(p.old_text)
           if (!oldCode) return fail(toolCall.name, 'old_text is required')
           const file = await readFile(this.env, projectId, filePath)
@@ -117,6 +125,8 @@ export class FunctionCallHandler {
         }
         case 'insert_code': {
           if (!filePath) return fail(toolCall.name, 'file_path is required')
+          if (isPathTraversal(filePath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(filePath)) return fail(toolCall.name, 'Cannot edit protected file path')
           const code = str(p.code) ?? str(p.content)
           if (code === undefined) return fail(toolCall.name, 'code is required')
           const file = await readFile(this.env, projectId, filePath)
@@ -134,6 +144,8 @@ export class FunctionCallHandler {
           const oldPath = str(p.old_path)
           const newPath = str(p.new_path)
           if (!oldPath || !newPath) return fail(toolCall.name, 'old_path and new_path are required')
+          if (isPathTraversal(oldPath) || isPathTraversal(newPath)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(oldPath) || isProtectedPath(newPath)) return fail(toolCall.name, 'Cannot rename protected file path')
           const file = await readFile(this.env, projectId, oldPath)
           if (!file) return fail(toolCall.name, 'File not found')
           await upsertFile(this.env, projectId, newPath, file.content ?? '')
@@ -144,6 +156,8 @@ export class FunctionCallHandler {
           const source = str(p.source_path)
           const dest = str(p.dest_path)
           if (!source || !dest) return fail(toolCall.name, 'source_path and dest_path are required')
+          if (isPathTraversal(source) || isPathTraversal(dest)) return fail(toolCall.name, 'Invalid file path: directory traversal not allowed')
+          if (isProtectedPath(dest)) return fail(toolCall.name, 'Cannot overwrite protected destination path')
           const file = await readFile(this.env, projectId, source)
           if (!file) return fail(toolCall.name, 'File not found')
           await upsertFile(this.env, projectId, dest, file.content ?? '')

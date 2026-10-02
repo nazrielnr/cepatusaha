@@ -8,10 +8,11 @@ type UseAppWorkspacePropsOptions = {
   userId?: string
   requireToken: () => Promise<string>
   handlePublishRequest: () => void
-  handleHtmlUpdate: (html: string) => Promise<void>
+  handleHtmlUpdate: (html: string, newFiles?: any[]) => Promise<void>
+  handleManualRefresh?: () => Promise<void>
 }
 
-export function useAppWorkspaceProps({ appState, chatState, previewState, userId, requireToken, handlePublishRequest, handleHtmlUpdate }: UseAppWorkspacePropsOptions) {
+export function useAppWorkspaceProps({ appState, chatState, previewState, userId, requireToken, handlePublishRequest, handleHtmlUpdate, handleManualRefresh }: UseAppWorkspacePropsOptions) {
   const handleInspectAskAI = useCallback((_elementData: ElementData) => {
     // ponytail: element context plumbing paused; wire into chat composer when Ask AI UX returns
   }, [])
@@ -53,7 +54,7 @@ export function useAppWorkspaceProps({ appState, chatState, previewState, userId
     files: previewState.projectFiles,
     projectName: appState.currentSession?.title || 'Proyek Baru',
     projectSubtitle: appState.profileDraft?.businessName || 'Website Builder',
-    onRefresh: previewState.handleManualRefresh,
+    onRefresh: handleManualRefresh || previewState.handleManualRefresh,
     fileTreeRefreshTrigger: previewState.fileTreeRefreshTrigger,
     highlightedFilePaths: previewState.highlightedFilePaths,
     streamingFiles: previewState.streamingFiles,

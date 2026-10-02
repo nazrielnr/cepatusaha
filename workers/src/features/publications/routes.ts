@@ -24,12 +24,34 @@ export async function deletePublication(c: HonoContext) {
   return c.json({ success: true, message: 'Publication deleted' })
 }
 
-// Public serving of published sites. Latest publication wins for a given slug.
+function getMimeType(filePath: string): string {
+  const ext = filePath.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase() || ''
+  const MIME_TYPES: Record<string, string> = {
+    html: 'text/html; charset=utf-8',
+    htm: 'text/html; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    js: 'application/javascript; charset=utf-8',
+    mjs: 'application/javascript; charset=utf-8',
+    json: 'application/json; charset=utf-8',
+    svg: 'image/svg+xml',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    gif: 'image/gif',
+    ico: 'image/x-icon',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+    ttf: 'font/ttf',
+    otf: 'font/otf',
+    txt: 'text/plain; charset=utf-8',
+    md: 'text/markdown; charset=utf-8',
+    xml: 'application/xml',
+  }
+  return MIME_TYPES[ext] || 'text/plain; charset=utf-8'
+}
+
+// Direct worker publication hosting is completely disabled. Websites are deployed directly to Vercel.
 export async function getPublishedPage(c: HonoContext) {
-  const slug = c.req.param('slug')
-  // /published/toko/about.html -> page path 'about.html'; /published/toko/sub/x.html -> 'sub/x.html'
-  const rawPath = c.req.path.replace(new RegExp(`^/published/${slug}/?`), '')
-  const page = await getPublishedPageForSlug(c.env, slug, rawPath)
-  if (!page) return c.text('Not found', 404)
-  return c.html(page)
+  return c.json({ error: 'Direct worker publication hosting is disabled. Websites are deployed directly to Vercel.' }, 404)
 }

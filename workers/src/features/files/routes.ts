@@ -1,6 +1,7 @@
 /** Handlers for file operations. */
 import type { HonoContext } from '../../shared/types'
 import { assertProjectOwner, deleteFile, getDbUserId, listProjectFiles, readFile, searchProjectFiles, upsertFile } from './service'
+import { isPathTraversal, isProtectedPath } from './path-security'
 
 function jsonError(c: HonoContext, code: string, message: string, status: 400 | 401 | 403 | 404 | 500) {
   return c.json({ status: 'error', error: { code, message } }, status)
@@ -22,6 +23,13 @@ export async function updateFileHandler(c: HonoContext) {
       return jsonError(c, 'INVALID_REQUEST', 'Missing required fields: project_id, file_path, content', 400)
     }
 
+    if (isPathTraversal(file_path)) {
+      return jsonError(c, 'INVALID_PATH', 'Invalid file path: directory traversal not allowed', 400)
+    }
+    if (isProtectedPath(file_path)) {
+      return jsonError(c, 'FORBIDDEN', 'Access to protected file is forbidden', 403)
+    }
+
     await requireProject(c, project_id, auth.userId)
     await upsertFile(c.env, project_id, file_path, String(content))
     return c.json({ status: 'success', message: 'File updated successfully', data: { project_id, file_path } })
@@ -41,6 +49,13 @@ export async function deleteFileHandler(c: HonoContext) {
     const { project_id, file_path } = await c.req.json()
     if (!project_id || !file_path) return jsonError(c, 'INVALID_REQUEST', 'Missing required fields: project_id, file_path', 400)
 
+    if (isPathTraversal(file_path)) {
+      return jsonError(c, 'INVALID_PATH', 'Invalid file path: directory traversal not allowed', 400)
+    }
+    if (isProtectedPath(file_path)) {
+      return jsonError(c, 'FORBIDDEN', 'Deleting protected file is forbidden', 403)
+    }
+
     await requireProject(c, project_id, auth.userId)
     await deleteFile(c.env, project_id, file_path)
     return c.json({ status: 'success', message: 'File deleted successfully', data: { project_id, file_path } })
@@ -59,6 +74,13 @@ export async function readFileHandler(c: HonoContext) {
 
     const { project_id, file_path } = await c.req.json()
     if (!project_id || !file_path) return jsonError(c, 'INVALID_REQUEST', 'Missing required fields: project_id, file_path', 400)
+
+    if (isPathTraversal(file_path)) {
+      return jsonError(c, 'INVALID_PATH', 'Invalid file path: directory traversal not allowed', 400)
+    }
+    if (isProtectedPath(file_path)) {
+      return jsonError(c, 'FORBIDDEN', 'Access to protected file is forbidden', 403)
+    }
 
     await requireProject(c, project_id, auth.userId)
     const file = await readFile(c.env, project_id, file_path)
@@ -81,7 +103,9 @@ export async function listFilesHandler(c: HonoContext) {
     if (!project_id) return jsonError(c, 'INVALID_REQUEST', 'Missing required field: project_id', 400)
 
     await requireProject(c, project_id, auth.userId)
-    const files = await listProjectFiles(c.env, project_id)
+    const allFiles = await listProjectFiles(c.env, project_id)
+    // Filter out protected/internal artifacts from user side
+    const files = allFiles.filter(f => !isProtectedPath(f.file_path))
     return c.json({ status: 'success', data: { project_id, files } })
   } catch (error) {
     if ((error as Error).message === 'PROJECT_NOT_FOUND') return jsonError(c, 'PROJECT_NOT_FOUND', 'Project not found', 404)
@@ -100,7 +124,9 @@ export async function searchFilesHandler(c: HonoContext) {
     if (!project_id || !query) return jsonError(c, 'INVALID_REQUEST', 'Missing required fields: project_id, query', 400)
 
     await requireProject(c, project_id, auth.userId)
-    const results = await searchProjectFiles(c.env, project_id, String(query), file_pattern)
+    const allResults = await searchProjectFiles(c.env, project_id, String(query), file_pattern)
+    // Filter out matches from protected/internal artifacts
+    const results = allResults.filter(r => !isProtectedPath(r.file_path))
     return c.json({ status: 'success', data: { project_id, query, results } })
   } catch (error) {
     if ((error as Error).message === 'PROJECT_NOT_FOUND') return jsonError(c, 'PROJECT_NOT_FOUND', 'Project not found', 404)

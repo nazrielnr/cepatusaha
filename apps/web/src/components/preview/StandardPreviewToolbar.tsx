@@ -67,7 +67,7 @@ export function StandardPreviewToolbar({
                 {pagePaths.map((path) => (
                   <DropdownMenuItem
                     key={path}
-                    onClick={() => navigateToPage?.(`/${path}`)}
+                    onClick={() => navigateToPage?.(path)}
                     className={cn("cursor-pointer", currentPage === path && "bg-accent text-accent-foreground")}
                   >
                     {path}

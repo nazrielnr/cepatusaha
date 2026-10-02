@@ -19,11 +19,22 @@ export async function uploadImage(c: HonoContext) {
 }
 
 export async function getAsset(c: HonoContext) {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+  }
   const key = c.req.path.split('/api/assets/object/')[1]
-  if (!key) return c.json({ status: 'error', error: { code: 'INVALID_REQUEST', message: 'asset key is required' } }, 400)
-  const object = await c.env.ASSETS_BUCKET.get(decodeURIComponent(key))
-  if (!object) return c.json({ status: 'error', error: { code: 'NOT_FOUND', message: 'Asset not found' } }, 404)
-  return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000, immutable' } })
+  if (!key) return c.json({ status: 'error', error: { code: 'INVALID_REQUEST', message: 'asset key is required' } }, 400, corsHeaders)
+  const decodedKey = decodeURIComponent(key)
+  const object = await c.env.ASSETS_BUCKET.get(decodedKey)
+  if (!object) return c.json({ status: 'error', error: { code: 'NOT_FOUND', message: 'Asset not found' } }, 404, corsHeaders)
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+      'Cache-Control': 'public, max-age=31536000, immutable',
+      ...corsHeaders,
+    }
+  })
 }
 
 async function handleUpload(c: HonoContext, imageOnly: boolean) {

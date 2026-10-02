@@ -17,6 +17,7 @@ export type CanvasEditorSelection = {
   text: string
   classes: string
   src?: string
+  assetPath?: string
   alt?: string
   rect: { x: number; y: number; width: number; height: number }
   style: CanvasEditorStyle
@@ -25,12 +26,24 @@ export type CanvasEditorSelection = {
 export type CanvasEditorPatch = {
   text?: string
   src?: string
+  assetPath?: string
   alt?: string
   style?: Partial<CanvasEditorStyle>
 }
 
+export type ElementSnapshot = {
+  id: string
+  text?: string
+  src: string | null
+  assetPath: string | null
+  alt: string | null
+  style: string | null
+}
+
 export type CanvasEditorBridge = {
   applyPatch: (id: string, patch: CanvasEditorPatch) => CanvasEditorSelection | null
+  revert: () => CanvasEditorSelection | null
+  commit: () => void
   clearSelection: () => void
   destroy: () => void
   getSelected: () => CanvasEditorSelection | null
@@ -91,12 +104,19 @@ function data(el: HTMLElement): CanvasEditorSelection {
   const c = view?.getComputedStyle(el)
   const rect = el.getBoundingClientRect()
   const img = el.tagName === 'IMG' ? el as HTMLImageElement : null
+  const rawAssetPath = img?.getAttribute('data-asset-path') || ''
+  const rawSrc = img?.getAttribute('src') || ''
+  const isRemote = /^(https?:)?\/\//i.test(rawSrc) || rawSrc.startsWith('data:') || rawSrc.startsWith('blob:')
+  const assetPath = rawAssetPath || (!isRemote && rawSrc ? rawSrc : '') || undefined
+  const displaySrc = isRemote ? rawSrc : (img?.currentSrc || rawSrc || undefined)
+
   return {
     id: ensureId(el),
     tag: el.tagName,
     text: TEXT_TAGS.has(el.tagName) ? el.textContent?.trim() || '' : '',
     classes: el.className,
-    src: img?.getAttribute('src') || undefined,
+    src: displaySrc,
+    assetPath,
     alt: img?.getAttribute('alt') || undefined,
     rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
     style: {
@@ -112,11 +132,38 @@ function data(el: HTMLElement): CanvasEditorSelection {
   }
 }
 
-function clean(doc: Document) {
-  doc.querySelectorAll(`[${ID_ATTR}]`).forEach(el => el.removeAttribute(ID_ATTR))
-  doc.querySelectorAll(`.${HOVER_CLASS}, .${SELECTED_CLASS}`).forEach(el => el.classList.remove(HOVER_CLASS, SELECTED_CLASS))
-  doc.getElementById(STYLE_ID)?.remove()
-  cleanInspectArtifacts(doc)
+function clean(root: Document | Element | null) {
+  if (!root || typeof (root as any).querySelectorAll !== 'function') return
+  root.querySelectorAll(`[${ID_ATTR}]`).forEach(el => el.removeAttribute(ID_ATTR))
+  root.querySelectorAll(`.${HOVER_CLASS}, .${SELECTED_CLASS}`).forEach(el => el.classList.remove(HOVER_CLASS, SELECTED_CLASS))
+  const styleEl = typeof (root as Document).getElementById === 'function'
+    ? (root as Document).getElementById(STYLE_ID)
+    : root.querySelector?.(`#${STYLE_ID}`)
+  styleEl?.remove()
+  cleanInspectArtifacts(root)
+
+  // Remove preview injected scripts
+  root.querySelectorAll('script[data-preview-nav="true"], script[data-workspace-env="true"]').forEach(el => el.remove())
+
+  // Restore inlined CSS to <link rel="stylesheet">
+  root.querySelectorAll('style[data-injected="true"]').forEach(el => {
+    const source = el.getAttribute('data-source')
+    if (source) {
+      const doc = (root as any).ownerDocument || (root as Document)
+      const link = doc.createElement('link')
+      link.setAttribute('rel', 'stylesheet')
+      link.setAttribute('href', source)
+      el.replaceWith(link)
+    } else {
+      el.remove()
+    }
+  })
+
+  root.querySelectorAll('[data-asset-path]').forEach(el => {
+    const original = el.getAttribute('data-asset-path')
+    if (original) el.setAttribute('src', original)
+    el.removeAttribute('data-asset-path')
+  })
 }
 
 export function installCanvasEditorBridge(doc: Document, options: Options = {}): CanvasEditorBridge {
@@ -124,6 +171,8 @@ export function installCanvasEditorBridge(doc: Document, options: Options = {}):
 
   let selected: HTMLElement | null = null
   let hovered: HTMLElement | null = null
+  let initialSnapshot: ElementSnapshot | null = null
+  let isDirty = false
   const listeners: Array<[EventTarget, string, EventListener]> = []
 
   const style = doc.createElement('style')
@@ -134,11 +183,65 @@ export function installCanvasEditorBridge(doc: Document, options: Options = {}):
   `
   doc.head.appendChild(style)
 
+  const takeSnapshot = (el: HTMLElement): ElementSnapshot => {
+    const img = el.tagName === 'IMG' ? (el as HTMLImageElement) : null
+    return {
+      id: ensureId(el),
+      text: TEXT_TAGS.has(el.tagName) ? el.textContent || '' : undefined,
+      src: img ? img.getAttribute('src') : null,
+      assetPath: img ? img.getAttribute('data-asset-path') : null,
+      alt: img ? img.getAttribute('alt') : null,
+      style: el.getAttribute('style'),
+    }
+  }
+
+  const restoreSnapshot = (el: HTMLElement, snapshot: ElementSnapshot) => {
+    if (TEXT_TAGS.has(el.tagName) && snapshot.text !== undefined) {
+      el.textContent = snapshot.text
+    }
+    if (el.tagName === 'IMG') {
+      if (snapshot.src !== null) {
+        el.setAttribute('src', snapshot.src)
+      } else {
+        el.removeAttribute('src')
+      }
+      if (snapshot.assetPath !== null) {
+        el.setAttribute('data-asset-path', snapshot.assetPath)
+      } else {
+        el.removeAttribute('data-asset-path')
+      }
+      if (snapshot.alt !== null) {
+        el.setAttribute('alt', snapshot.alt)
+      } else {
+        el.removeAttribute('alt')
+      }
+    }
+    if (snapshot.style !== null) {
+      el.setAttribute('style', snapshot.style)
+    } else {
+      el.removeAttribute('style')
+    }
+  }
+
   const select = (el: HTMLElement | null) => {
+    // If there were uncommitted changes on previously selected element, restore them
+    if (selected && isDirty && initialSnapshot && selected !== el) {
+      restoreSnapshot(selected, initialSnapshot)
+      isDirty = false
+      initialSnapshot = null
+    }
+
     selected?.classList.remove(SELECTED_CLASS)
     selected = el
-    if (!selected) { options.onSelect?.(null); return }
+    if (!selected) {
+      initialSnapshot = null
+      isDirty = false
+      options.onSelect?.(null)
+      return
+    }
     selected.classList.add(SELECTED_CLASS)
+    initialSnapshot = takeSnapshot(selected)
+    isDirty = false
     options.onSelect?.(data(selected))
   }
 
@@ -173,18 +276,50 @@ export function installCanvasEditorBridge(doc: Document, options: Options = {}):
       if (!el) return null
       if (TEXT_TAGS.has(el.tagName) && patch.text !== undefined) el.textContent = patch.text
       if (el.tagName === 'IMG') {
-        if (patch.src !== undefined) el.setAttribute('src', patch.src)
+        if (patch.assetPath !== undefined) {
+          if (patch.assetPath) {
+            el.setAttribute('data-asset-path', patch.assetPath)
+          } else {
+            el.removeAttribute('data-asset-path')
+          }
+        }
+        if (patch.src !== undefined) {
+          el.setAttribute('src', patch.src)
+          if (patch.assetPath === undefined && (/^(https?:)?\/\//i.test(patch.src) || patch.src.startsWith('data:'))) {
+            el.removeAttribute('data-asset-path')
+          }
+        }
         if (patch.alt !== undefined) el.setAttribute('alt', patch.alt)
       }
       if (patch.style) Object.entries(patch.style).forEach(([key, value]) => {
         if (value !== undefined) el.style[key as any] = value
       })
+      isDirty = true
       const next = data(el)
       options.onChange?.(next)
       return next
     },
+    revert() {
+      if (selected && initialSnapshot) {
+        restoreSnapshot(selected, initialSnapshot)
+        isDirty = false
+        const current = selected
+        initialSnapshot = null
+        const next = data(current)
+        options.onChange?.(next)
+        return next
+      }
+      return null
+    },
+    commit() {
+      isDirty = false
+      initialSnapshot = selected ? takeSnapshot(selected) : null
+    },
     clearSelection() { select(null) },
     destroy() {
+      if (selected && isDirty && initialSnapshot) {
+        restoreSnapshot(selected, initialSnapshot)
+      }
       listeners.forEach(([target, type, fn]) => target.removeEventListener(type, fn, true))
       observer.disconnect()
       hovered?.classList.remove(HOVER_CLASS)
@@ -194,9 +329,11 @@ export function installCanvasEditorBridge(doc: Document, options: Options = {}):
     },
     getSelected() { return selected ? data(selected) : null },
     serialize() {
-      const clone = doc.cloneNode(true) as Document
+      const root = doc?.documentElement
+      if (!root) return ''
+      const clone = root.cloneNode(true) as HTMLElement
       clean(clone)
-      return `<!DOCTYPE html>\n${clone.documentElement.outerHTML}`
+      return `<!DOCTYPE html>\n${clone.outerHTML}`
     },
   }
 

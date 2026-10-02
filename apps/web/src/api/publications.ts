@@ -71,6 +71,7 @@ function mapSessionSummary(payload: SessionPayload): SessionSummary {
 
 export type PublishSiteOptions = {
   sessionId?: string | null
+  projectId?: string | null
   slug?: string | null
   pages: Array<{ path: string; content: string }>
 }
@@ -87,6 +88,7 @@ export async function publishSite(
       headers: buildFunctionHeaders(sessionToken),
       body: JSON.stringify({
         sessionId: options.sessionId ?? null,
+        projectId: options.projectId ?? null,
         slug: options.slug ?? null,
         pages: options.pages,
       }),
@@ -130,14 +132,23 @@ export async function fetchPublications(token?: string): Promise<PublicationReco
 
     if (sessionId) sessionIds.add(sessionId)
 
+    const slug = typeof meta.slug === 'string' ? meta.slug : null
+    const vercelDomain = typeof meta.vercelDomain === 'string' && meta.vercelDomain ? meta.vercelDomain : null
+    const vercelUrl = typeof meta.vercelUrl === 'string' && meta.vercelUrl ? meta.vercelUrl : null
+    const publishedUrl = typeof record.published_url === 'string' && record.published_url.startsWith('http') ? record.published_url : ''
+    const publicUrl = vercelDomain || (slug ? `https://${slug}.vercel.app` : null) || vercelUrl || (typeof record.publicUrl === 'string' && record.publicUrl.startsWith('http') ? record.publicUrl : publishedUrl) || ''
+
     return {
       id: String(record.id),
-      publicUrl: typeof record.publicUrl === 'string' ? record.publicUrl : typeof record.published_url === 'string' ? record.published_url : '',
+      projectId: record.project_id ? String(record.project_id) : null,
+      publicUrl,
       status: 'PUBLISHED',
       publishedAt: typeof record.publishedAt === 'string' ? record.publishedAt : typeof record.published_at === 'string' ? record.published_at : null,
-      slug: typeof meta.slug === 'string' ? meta.slug : null,
+      slug,
       sessionId,
       sessionTitle: null as string | null, // Will be filled below
+      vercelUrl: vercelDomain || vercelUrl,
+      deploymentStatus: typeof meta.deploymentStatus === 'string' ? meta.deploymentStatus : null,
     }
   })
 

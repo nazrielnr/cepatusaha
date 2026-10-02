@@ -4,7 +4,7 @@ import { installCanvasEditorBridge, type CanvasEditorBridge, type CanvasEditorPa
 type Options = {
   enabled: boolean
   iframeRef: RefObject<HTMLIFrameElement | null>
-  onHtmlUpdate?: (html: string) => void
+  onHtmlUpdate?: (html: string, newFiles?: any[], pagePath?: string) => void
 }
 
 export function useCanvasEditor({ enabled, iframeRef, onHtmlUpdate }: Options) {
@@ -14,14 +14,13 @@ export function useCanvasEditor({ enabled, iframeRef, onHtmlUpdate }: Options) {
 
   useEffect(() => {
     const install = () => {
+      bridgeRef.current?.destroy()
+      bridgeRef.current = null
+      setSelected(null)
+      setDirty(false)
       if (!enabled || !iframeRef.current?.contentDocument) {
-        bridgeRef.current?.destroy()
-        bridgeRef.current = null
-        setSelected(null)
-        setDirty(false)
         return
       }
-      bridgeRef.current?.destroy()
       const bridge = installCanvasEditorBridge(iframeRef.current.contentDocument, {
         onSelect: setSelected,
         onChange: (next) => { setSelected(next); setDirty(true) },
@@ -30,8 +29,11 @@ export function useCanvasEditor({ enabled, iframeRef, onHtmlUpdate }: Options) {
     }
     install()
     window.addEventListener('canvas-iframe-focus', install)
+    const iframe = iframeRef.current
+    iframe?.addEventListener('load', install)
     return () => {
       window.removeEventListener('canvas-iframe-focus', install)
+      iframe?.removeEventListener('load', install)
       bridgeRef.current?.destroy()
       bridgeRef.current = null
     }
@@ -43,17 +45,41 @@ export function useCanvasEditor({ enabled, iframeRef, onHtmlUpdate }: Options) {
     if (next) { setSelected(next); setDirty(true) }
   }, [selected])
 
-  const clearSelection = useCallback(() => {
+  const revert = useCallback(() => {
+    bridgeRef.current?.revert()
     bridgeRef.current?.clearSelection()
     setSelected(null)
+    setDirty(false)
   }, [])
 
-  const save = useCallback(() => {
-    const html = bridgeRef.current?.serialize()
-    if (!html) return
-    onHtmlUpdate?.(html)
+  const clearSelection = useCallback(() => {
+    if (dirty) {
+      bridgeRef.current?.revert()
+    }
+    bridgeRef.current?.clearSelection()
+    setSelected(null)
     setDirty(false)
-  }, [onHtmlUpdate])
+  }, [dirty])
 
-  return { selected, dirty, applyPatch, clearSelection, save }
+  const save = useCallback((newFiles?: any[]) => {
+    try {
+      bridgeRef.current?.commit()
+      const html = bridgeRef.current?.serialize()
+      const iframe = iframeRef.current
+      const pagePath = iframe?.getAttribute('data-page-path') || iframe?.title?.replace(/^Canvas\s+/, '') || undefined
+      bridgeRef.current?.clearSelection()
+      setSelected(null)
+      setDirty(false)
+      if (html) {
+        onHtmlUpdate?.(html, newFiles, pagePath)
+      }
+    } catch (e) {
+      console.error('[useCanvasEditor] Error during save:', e)
+      bridgeRef.current?.clearSelection()
+      setSelected(null)
+      setDirty(false)
+    }
+  }, [onHtmlUpdate, iframeRef])
+
+  return { selected, dirty, applyPatch, clearSelection, revert, save }
 }

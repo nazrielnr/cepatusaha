@@ -26,6 +26,8 @@ export interface FileData {
   file_type?: string
 }
 
+import { getProjectAssetFiles, resolveAssetUrlsInHtml, type ProjectAssetFile } from './virtualAssetResolver'
+
 /**
  * Navigation handler script injected into each HTML page.
  * Intercepts <a> clicks and sends message to parent window.
@@ -35,6 +37,12 @@ const NAVIGATION_SCRIPT = `
 (function() {
   // Intercept all link clicks
   document.addEventListener('click', function(e) {
+    // If inspect mode or canvas editor bridge is active, NEVER navigate
+    if (window.__canvasEditorBridge || window.__inspectModeActive || document.getElementById('__cu-editor-style__') || document.body.classList.contains('__cu-inspect-mode__')) {
+      e.preventDefault();
+      return;
+    }
+
     const link = e.target.closest('a');
     if (!link) return;
 
@@ -181,9 +189,14 @@ function combineHtmlWithAssets(
   htmlContent: string,
   cssFiles: FileData[],
   jsFiles: FileData[],
-  htmlPath = 'index.html'
+  htmlPath = 'index.html',
+  assetFiles: ProjectAssetFile[] = []
 ): string {
-  return inlineLinkedJs(inlineLinkedCss(htmlContent, htmlPath, toFileMap(cssFiles)), htmlPath, toFileMap(jsFiles))
+  let combined = inlineLinkedJs(inlineLinkedCss(htmlContent, htmlPath, toFileMap(cssFiles)), htmlPath, toFileMap(jsFiles))
+  if (assetFiles.length > 0) {
+    combined = resolveAssetUrlsInHtml(combined, htmlPath, assetFiles, { retainDataPath: true })
+  }
+  return combined
 }
 
 /**
@@ -191,7 +204,7 @@ function combineHtmlWithAssets(
  * Each HTML file gets CSS/JS injected and navigation handler added.
  */
 export function createPageBlobMappings(files: FileData[]): PageBlobMapping[] {
-  // Separate HTML, CSS, and JS files
+  // Separate HTML, CSS, JS, and Asset files
   const htmlFiles = files.filter(f =>
     f.file_path.toLowerCase().endsWith('.html')
   )
@@ -201,6 +214,7 @@ export function createPageBlobMappings(files: FileData[]): PageBlobMapping[] {
   const jsFiles = files.filter(f =>
     f.file_type === 'javascript' || f.file_path.toLowerCase().endsWith('.js')
   )
+  const assetFiles = getProjectAssetFiles(files)
   const env = workspaceEnv(files)
 
   if (htmlFiles.length === 0) {
@@ -212,8 +226,8 @@ export function createPageBlobMappings(files: FileData[]): PageBlobMapping[] {
   const mappings: PageBlobMapping[] = []
 
   for (const htmlFile of htmlFiles) {
-    // Combine with workspace env + linked CSS and JS
-    let content = combineHtmlWithAssets(injectWorkspaceEnv(htmlFile.content, env), cssFiles, jsFiles, htmlFile.file_path)
+    // Combine with workspace env + linked CSS and JS + virtual asset resolution
+    let content = combineHtmlWithAssets(injectWorkspaceEnv(htmlFile.content, env), cssFiles, jsFiles, htmlFile.file_path, assetFiles)
 
     // Inject navigation handler
     content = injectNavigationHandler(content)
@@ -242,43 +256,70 @@ export function createPageBlobMappings(files: FileData[]): PageBlobMapping[] {
  * - resolvePagePath('index.html', 'pages/about.html') => 'pages/about.html'
  */
 export function resolvePagePath(currentPath: string, targetHref: string): string {
-  if (targetHref.split('?')[0].split('#')[0] === '/') return 'index.html'
-  return resolveFilePath(currentPath, targetHref) || 'index.html'
+  const cleanTarget = targetHref.split('?')[0].split('#')[0].trim()
+  if (!cleanTarget || cleanTarget === '/' || cleanTarget === '//') return 'index.html'
+
+  // Remove leading slashes
+  const normalizedNoLeading = cleanTarget.replace(/^\/+/, '')
+
+  // If it's a relative path starting with ./ or ../ or doesn't start with / and currentPath has directory
+  if (cleanTarget.startsWith('./') || cleanTarget.startsWith('../') || (!cleanTarget.startsWith('/') && currentPath.includes('/'))) {
+    const resolved = resolveFilePath(currentPath, cleanTarget)
+    if (resolved) return resolved
+  }
+
+  return normalizedNoLeading || 'index.html'
 }
 
 /**
  * Find the best matching page for a given path.
- * Tries exact match first, then with/without .html extension.
+ * Tries exact match, without leading slash, with/without .html, suffix match, and basename match.
  */
 export function findPageMapping(
   mappings: PageBlobMapping[],
   targetPath: string
 ): PageBlobMapping | undefined {
-  // Exact match
-  let found = mappings.find(m => m.path === targetPath)
+  if (!mappings.length || !targetPath) return undefined
+
+  const cleaned = targetPath.split('?')[0].split('#')[0].trim()
+  const noSlash = cleaned.replace(/^\/+/, '')
+
+  // 1. Exact match with cleaned or without leading slash
+  let found = mappings.find(m => m.path === cleaned || m.path === noSlash)
   if (found) return found
 
-  // Try with .html extension
-  if (!targetPath.endsWith('.html')) {
-    found = mappings.find(m => m.path === targetPath + '.html')
+  // 2. Try with .html extension
+  if (!noSlash.endsWith('.html')) {
+    found = mappings.find(m => m.path === noSlash + '.html')
     if (found) return found
   }
 
-  // Try directory index
-  const normalized = targetPath.replace(/\/$/, '')
+  // 3. Try directory index
+  const normalized = noSlash.replace(/\/$/, '')
   found = mappings.find(m => m.path === `${normalized}/index.html`)
   if (found) return found
 
-  // Try without .html extension
-  if (targetPath.endsWith('.html')) {
-    const withoutExt = targetPath.slice(0, -5)
+  // 4. Try without .html extension
+  if (noSlash.endsWith('.html')) {
+    const withoutExt = noSlash.slice(0, -5)
     found = mappings.find(m => m.path === withoutExt)
     if (found) return found
   }
 
-  // Try case-insensitive match
-  const lowerTarget = targetPath.toLowerCase()
-  found = mappings.find(m => m.path.toLowerCase() === lowerTarget)
+  // 5. Try suffix match (e.g. 'pages/product.html' or 'product.html' matching 'src/pages/product.html')
+  found = mappings.find(m => m.path.endsWith(`/${noSlash}`) || m.path === noSlash)
+  if (found) return found
+
+  // 6. Try basename match
+  const targetBasename = noSlash.split('/').pop()
+  if (targetBasename) {
+    found = mappings.find(m => m.path.split('/').pop() === targetBasename)
+    if (found) return found
+  }
+
+  // 7. Case-insensitive fallback
+  const lower = noSlash.toLowerCase()
+  found = mappings.find(m => m.path.toLowerCase() === lower || m.path.toLowerCase().endsWith(`/${lower}`))
   if (found) return found
 
   return undefined

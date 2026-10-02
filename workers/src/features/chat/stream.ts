@@ -19,6 +19,9 @@ import { corsResponseHeaders } from '../../middleware/cors';
 import { imageToModelUrl } from './image-context';
 import { getPlanState, chargeTokenUsage } from '../plan/service';
 import { createSql } from '../../db';
+import { upsertFile, listProjectFilesWithContent } from '../files/service';
+import { sanitizeArtifactFileName } from '../files/path-security';
+import { errorLog } from '../../shared/logger';
 
 
 /**
@@ -169,11 +172,74 @@ export async function chatHandlerStream(c: HonoContext) {
     : buildSystemPrompt(skillSummaries);
 
 
+  // Get or create project
+  let projectId = str(context?.projectId);
+  if (!projectId && sessionId) {
+    projectId = await getSessionProjectId(c.env, sessionId) ?? undefined;
+  }
+
+  if (!projectId) {
+    projectId = await createProjectForUser(c.env, dbUserId, sessionId);
+  }
+
+  // Auto-stage any uploaded images from conversation into workspace artifacts
+  for (const msg of conversation) {
+    if (msg.images && Array.isArray(msg.images)) {
+      for (let i = 0; i < msg.images.length; i++) {
+        const img = msg.images[i];
+        if (!img?.url) continue;
+        const rawName = img.name || `image_${i + 1}.png`;
+        const safeName = sanitizeArtifactFileName(rawName);
+        const artifactPath = `.artifacts/images/${safeName}`;
+        try {
+          await upsertFile(c.env, projectId, artifactPath, img.url);
+        } catch (err) {
+          errorLog(undefined, '[chatHandlerStream] Failed to stage image artifact:', err);
+        }
+      }
+    }
+  }
+
+  // Load existing project artifacts for AI context
+  let artifactInfo = '';
+  try {
+    const projectFiles = await listProjectFilesWithContent(c.env, projectId);
+    const artifactFiles = projectFiles.filter((f) => f.file_path.startsWith('.artifacts/'));
+    if (artifactFiles.length > 0) {
+      artifactInfo = `\n\n[WORKSPACE ARTIFACTS AVAILABLE TO AI]\n` +
+        `The following user-uploaded image artifacts are available in the project's internal workspace (.artifacts/):\n` +
+        artifactFiles.map((f, i) => `- Artifact ${i + 1}: path="${f.file_path}", url="${f.content}"`).join('\n') +
+        `\n\nInstructions for using artifacts:\n` +
+        `- When the user requests to use, place, swap, or update an image in the website (e.g. "ganti gambar ini ke product 1", "pasang foto ini"): \n` +
+        `  1. Call \`copy_file(source_path: "<artifact_path>", dest_path: "assets/<filename>")\` (or \`src/assets/images/<filename>\`) to copy the artifact into public assets.\n` +
+        `  2. Call \`edit_file\` on the corresponding HTML file (index.html, product.html, etc.) to set the \`<img src="assets/<filename>">\` or CSS style.\n` +
+        `  3. Call \`analyze_image\` if you need visual inspection of image colors or details.\n`;
+    }
+  } catch (err) {
+    errorLog(undefined, '[chatHandlerStream] Failed to query artifacts:', err);
+  }
+
   const nativeImageMode = c.env.AI_IMAGE_MODE === 'native';
   const nativeConversation = nativeImageMode ? await inlineImagesForModel(conversation, c.env) : conversation;
   const conversationCopy = nativeImageMode
-    ? nativeConversation
-    : conversation.map((msg) => msg.images?.length ? { ...msg, content: `${msg.content || ''}\n\nUPLOADED_IMAGES:\n${msg.images.map((img, i) => `- image_${i + 1}: url=${img.url}${img.key ? ` key=${img.key}` : ''}${img.name ? ` name=${img.name}` : ''}`).join('\n')}\n\nUse analyze_image tool before answering image-dependent requests.`, images: undefined } : msg);
+    ? nativeConversation.map((msg, idx) => {
+        const isLast = idx === nativeConversation.length - 1;
+        if (isLast && artifactInfo) {
+          return { ...msg, content: `${msg.content || ''}${artifactInfo}` };
+        }
+        return msg;
+      })
+    : conversation.map((msg, idx) => {
+        const isLast = idx === conversation.length - 1;
+        let content = msg.content || '';
+        if (msg.images?.length) {
+          content = `${content}\n\nUPLOADED_IMAGES:\n${msg.images.map((img, i) => `- image_${i + 1}: url=${img.url}${img.key ? ` key=${img.key}` : ''}${img.name ? ` name=${img.name}` : ''}`).join('\n')}\n\nUse analyze_image tool before answering image-dependent requests.`;
+        }
+        if (isLast && artifactInfo) {
+          content = `${content}${artifactInfo}`;
+        }
+        return { ...msg, content, images: undefined };
+      });
 
   // Enhance first user message
   if (conversationCopy.length > 0 && (conversationCopy[0].role === 'user' || conversationCopy[0].sender === 'user')) {
@@ -188,16 +254,6 @@ export async function chatHandlerStream(c: HonoContext) {
 
   // Get function call handler
   const functionHandler = new FunctionCallHandler(c.env);
-
-  // Get or create project
-  let projectId = str(context?.projectId);
-  if (!projectId && sessionId) {
-    projectId = await getSessionProjectId(c.env, sessionId) ?? undefined;
-  }
-
-  if (!projectId) {
-    projectId = await createProjectForUser(c.env, dbUserId, sessionId);
-  }
 
   // Create SSE stream
   const stream = new ReadableStream({

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { PreviewResponse, LayoutBlueprint, GeneratedCopy } from '@/types/preview'
 import {
   createPageBlobMappings,
@@ -34,7 +34,20 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
 
   // Multi-page preview state
   const [pageBlobMappings, setPageBlobMappings] = useState<PageBlobMapping[]>([])
-  const [currentPage, setCurrentPage] = useState<string>('index.html')
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    try {
+      return (typeof window !== 'undefined' && sessionStorage.getItem('cu_preview_page')) || 'index.html'
+    } catch {
+      return 'index.html'
+    }
+  })
+  const currentPageRef = useRef<string>(currentPage)
+  useEffect(() => {
+    currentPageRef.current = currentPage
+    try {
+      if (currentPage && typeof window !== 'undefined') sessionStorage.setItem('cu_preview_page', currentPage)
+    } catch {}
+  }, [currentPage])
 
   const resetPreviewState = useCallback(() => {
     setPreviewState({ data: null, loading: false, error: null })
@@ -43,6 +56,7 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
     setPreviewProgress(0)
     setPreviewStatus('')
     setIsGeneratingPreview(false)
+    projectFilesRef.current = []
     setProjectFiles([])
     setPageBlobMappings((prev) => {
       revokePageBlobMappings(prev)
@@ -54,37 +68,69 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
 
   useEffect(() => () => revokePageBlobMappings(pageBlobMappings), [pageBlobMappings])
 
-  // Update preview HTML
-  const updatePreviewHtml = useCallback((html: string) => {
-    setPreviewState(prev => {
-      if (!prev.data) {
-        return {
-          ...prev,
-          data: {
-            html,
-            generatedCopy: generatedCopy || {
-              slogan: '',
-              summary: '',
-              highlights: [],
-              cta: { heading: '', body: '', button: '' }
-            },
-            layoutBlueprint: layoutBlueprint
-          }
-        }
-      }
+  const projectFilesRef = useRef<any[]>([])
+  useEffect(() => {
+    projectFilesRef.current = projectFiles
+  }, [projectFiles])
 
-      return {
-        ...prev,
-        data: {
-          ...prev.data,
-          html
-        }
+  // Update preview HTML
+  const updatePreviewHtml = useCallback((html: string, pagePath?: string, newFiles?: any[]) => {
+    const targetPage = pagePath || currentPageRef.current || currentPage
+
+    let updated = projectFilesRef.current.map(f => {
+      if (f.file_path === targetPage || f.file_path.endsWith(targetPage) || targetPage.endsWith(f.file_path)) {
+        return { ...f, content: html }
       }
+      return f
     })
-  }, [generatedCopy, layoutBlueprint])
+    const matched = updated.some(f => f.file_path === targetPage || f.file_path.endsWith(targetPage) || targetPage.endsWith(f.file_path))
+    if (!matched) {
+      updated.push({ file_path: targetPage, content: html, file_type: 'html' })
+    }
+    if (newFiles && newFiles.length > 0) {
+      for (const nf of newFiles) {
+        const idx = updated.findIndex(f => f.file_path === nf.file_path || f.file_path.endsWith(nf.file_path) || nf.file_path.endsWith(f.file_path))
+        if (idx >= 0) updated[idx] = nf
+        else updated.push(nf)
+      }
+    }
+
+    projectFilesRef.current = updated
+    setProjectFiles(updated)
+
+    // Re-generate complete preview mappings with inlined CSS/JS, resolved virtual assets, and nav handler
+    const mappings = createPageBlobMappings(updated)
+    setPageBlobMappings(mappings)
+
+    const desiredPage = targetPage || currentPageRef.current || currentPage
+    const activeMapping = findPageMapping(mappings, desiredPage) || findPageMapping(mappings, targetPage) || mappings[0]
+    const combinedHtml = activeMapping?.content || html
+
+    if (activeMapping?.path) {
+      setCurrentPage(activeMapping.path)
+      currentPageRef.current = activeMapping.path
+    }
+
+    setPreviewState(ps => ({
+      ...ps,
+      data: {
+        html: combinedHtml,
+        generatedCopy: generatedCopy || {
+          slogan: '',
+          summary: '',
+          highlights: [],
+          cta: { heading: '', body: '', button: '' }
+        },
+        layoutBlueprint: layoutBlueprint
+      }
+    }))
+
+    setFileTreeRefreshTrigger(prev => prev + 1)
+  }, [currentPage, generatedCopy, layoutBlueprint])
 
   // Update preview from run_preview result
   const updatePreviewFromFiles = useCallback((files: any[]) => {
+    projectFilesRef.current = files
 
     // Create blob mappings for ALL HTML files (multi-page support)
     const mappings = createPageBlobMappings(files)
@@ -92,7 +138,7 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
 
     // Find primary HTML file: prefer index.html, else first .html
     const indexFile = files.find((f: any) =>
-      f.file_path === 'src/index.html' || f.file_path === 'index.html' || f.file_path.endsWith('/index.html')
+      f.file_path === 'index.html' || f.file_path === 'src/index.html' || f.file_path.endsWith('/index.html')
     )
     const firstHtml = files.find((f: any) => f.file_path?.toLowerCase().endsWith('.html'))
     const primaryFile = indexFile || firstHtml || files[0]
@@ -102,14 +148,20 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
       return
     }
 
-    // Set current page for multi-page navigation
-    const initialPage = primaryFile.file_path
-    setCurrentPage(initialPage)
+    // Preserve current page if it exists in the updated mappings
+    const savedPage = typeof window !== 'undefined' ? sessionStorage.getItem('cu_preview_page') : null
+    const desiredPage = currentPageRef.current || savedPage || currentPage
+    let activeMapping = desiredPage ? findPageMapping(mappings, desiredPage) : undefined
+    if (!activeMapping) {
+      activeMapping = mappings.find(m => m.path === primaryFile.file_path) || mappings[0]
+    }
+
+    const activePage = activeMapping ? activeMapping.path : primaryFile.file_path
+    setCurrentPage(activePage)
+    currentPageRef.current = activePage
 
     // Get combined HTML from blob mapping (already has CSS/JS injected + nav handler)
-    const initialMapping = mappings.find(m => m.path === initialPage)
-    const combinedHtml = initialMapping?.content || primaryFile.content
-
+    const combinedHtml = activeMapping?.content || primaryFile.content
 
     // Update preview state
     setPreviewState({
@@ -135,19 +187,24 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
 
   // Navigate to a different page (for multi-page support)
   const navigateToPage = useCallback((targetHref: string) => {
-    // Resolve path relative to current page
-    const resolvedPath = resolvePagePath(currentPage, targetHref)
+    // 1. Direct match check
+    let targetMapping = findPageMapping(pageBlobMappings, targetHref)
 
-    // Find matching page in blob mappings
-    const targetMapping = findPageMapping(pageBlobMappings, resolvedPath)
+    // 2. Relative resolution fallback
+    if (!targetMapping) {
+      const activeCurrent = currentPageRef.current || currentPage
+      const resolvedPath = resolvePagePath(activeCurrent, targetHref)
+      targetMapping = findPageMapping(pageBlobMappings, resolvedPath)
+    }
 
     if (!targetMapping) {
-      console.warn('[usePreviewState] ⚠️ Page not found:', resolvedPath)
+      console.warn('[usePreviewState] ⚠️ Page not found:', targetHref)
       return null
     }
 
     // Update current page
     setCurrentPage(targetMapping.path)
+    currentPageRef.current = targetMapping.path
 
     // Update preview HTML
     setPreviewState(prev => ({
@@ -190,6 +247,7 @@ export function usePreviewState(_options?: UsePreviewStateOptions) {
     // Clear preview - for hard refresh
     clearPreview: () => {
       setPreviewState({ data: null, loading: false, error: null })
+      projectFilesRef.current = []
       setProjectFiles([])
       setPageBlobMappings((prev) => {
         revokePageBlobMappings(prev)

@@ -63,7 +63,7 @@ export function PreviewStage({ viewMode, projectId, userId, files, onRefresh, ge
           {!previewState.loading && !previewState.error && isPlanningMode && <PlanningPreview className="w-full h-full" onSubmitToChat={onPlanningSubmit} />}
           {!previewState.loading && !previewState.error && !hasPreview && !isPlanningMode && <InteractiveEmptyState isActive={false} />}
 
-          {hasPreview && !isPlanningMode && <div className={cn('h-full w-full', viewMode !== 'canvas' && 'hidden')}><CanvasBoard active={viewMode === 'canvas'} pages={canvasPages.length ? canvasPages : previewUrl ? [{ path: currentPage || 'index.html', html: previewState.data?.html || '' }] : []} currentPage={currentPage} viewportMode={viewportMode} isInspectMode={isInspectMode} iframeRef={iframeRef} setIframeRef={setIframeRef} onSelectPage={(path) => navigateToPage?.(`/${path}`)} /></div>}
+          {hasPreview && !isPlanningMode && <div className={cn('h-full w-full', viewMode !== 'canvas' && 'hidden')}><CanvasBoard active={viewMode === 'canvas'} pages={canvasPages.length ? canvasPages : previewUrl ? [{ path: currentPage || 'index.html', html: previewState.data?.html || '' }] : []} currentPage={currentPage} viewportMode={viewportMode} isInspectMode={isInspectMode} iframeRef={iframeRef} setIframeRef={setIframeRef} onSelectPage={(path) => navigateToPage?.(path)} /></div>}
 
           {hasPreview && !isPlanningMode && (
             <div className="preview-content w-full h-full bg-muted dark:bg-muted flex items-center justify-center" style={{ display: viewMode === 'preview' ? undefined : 'none' }}>
@@ -71,12 +71,16 @@ export function PreviewStage({ viewMode, projectId, userId, files, onRefresh, ge
                 <iframe
                   ref={iframeRef}
                   key={`${previewUrl}-${viewportMode}`}
+                  data-page-path={currentPage || 'index.html'}
                   title="AI Website Preview"
                   className={cn('preview-iframe w-full h-full border-0 bg-background dark:bg-background', isInspectMode && 'cursor-crosshair')}
                   src={previewUrl ?? 'about:blank'}
                   sandbox="allow-same-origin allow-scripts allow-forms"
                   onLoad={() => {
-                    if (iframeRef.current) setIframeRef(iframeRef.current)
+                    if (iframeRef.current) {
+                      setIframeRef(iframeRef.current)
+                      window.dispatchEvent(new Event('canvas-iframe-focus'))
+                    }
                   }}
                 />
               </div>

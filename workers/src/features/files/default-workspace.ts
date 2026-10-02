@@ -9,29 +9,31 @@ export type DefaultWorkspaceFile = {
 
 export const DEFAULT_WORKSPACE_TREE = `
 ./
-├── src/
-│   ├── index.html
-│   ├── css/main.css
-│   ├── js/main.js
-│   ├── pages/
-│   ├── components/
-│   └── assets/
+├── index.html
+├── css/
+│   └── main.css
+├── js/
+│   └── main.js
+├── pages/
+├── components/
+├── assets/
+│   ├── images/
+│   └── fonts/
 ├── public/
-│   ├── robots.txt
-│   └── images/
+│   └── robots.txt
 ├── package.json
 ├── README.md
 ├── .env.example
 └── .gitignore
 
 Rules:
-- Work in src/.
-- Home page: src/index.html.
-- Extra pages: src/pages/*.html.
-- CSS: src/css/main.css, plus src/css/pages/*.css only when needed.
-- JS: src/js/main.js, plus src/js/utils/*.js only when needed.
-- Reusable UI snippets: src/components/.
-- Static assets: public/.
+- Home page: index.html (at root).
+- Extra pages: pages/*.html.
+- CSS: css/main.css, plus css/pages/*.css only when needed.
+- JS: js/main.js, plus js/utils/*.js only when needed.
+- Reusable UI snippets: components/.
+- Media assets: assets/ (e.g. assets/images/, assets/fonts/).
+- Direct public static files: public/ (e.g. public/robots.txt).
 - Environment: workspace .env is auto-loaded by preview/deploy tooling.
 - Browser JS may read env with process.env.KEY or window.__ENV__.KEY.
 - You may import env from ./env.js or ../env.js; the platform maps it automatically in preview.
@@ -56,7 +58,7 @@ export async function ensureDefaultWorkspace(env: Bindings, projectId: string): 
 
 export const DEFAULT_WORKSPACE_FILES: DefaultWorkspaceFile[] = [
   {
-    path: 'src/index.html',
+    path: 'index.html',
     type: 'html',
     content: `<!doctype html>
 <html lang="id">
@@ -70,14 +72,14 @@ export const DEFAULT_WORKSPACE_FILES: DefaultWorkspaceFile[] = [
 <body>
   <main>
     <h1>Website Baru</h1>
-    <p>Mulai bangun website dari struktur standar sandbox.</p>
+    <p>Mulai bangun website dari struktur standar.</p>
   </main>
 </body>
 </html>
 `,
   },
   {
-    path: 'src/css/main.css',
+    path: 'css/main.css',
     type: 'css',
     content: `:root {
   color-scheme: light;
@@ -92,15 +94,15 @@ main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0; }
 `,
   },
   {
-    path: 'src/js/main.js',
+    path: 'js/main.js',
     type: 'javascript',
     content: `// Entry point for page behavior. Workspace .env is available as process.env.KEY / window.__ENV__.KEY in preview.
 `,
   },
-  { path: 'src/pages/.gitkeep', type: 'text', content: '' },
-  { path: 'src/components/.gitkeep', type: 'text', content: '' },
-  { path: 'src/assets/images/.gitkeep', type: 'text', content: '' },
-  { path: 'src/assets/fonts/.gitkeep', type: 'text', content: '' },
+  { path: 'pages/.gitkeep', type: 'text', content: '' },
+  { path: 'components/.gitkeep', type: 'text', content: '' },
+  { path: 'assets/images/.gitkeep', type: 'text', content: '' },
+  { path: 'assets/fonts/.gitkeep', type: 'text', content: '' },
   { path: 'public/images/.gitkeep', type: 'text', content: '' },
   { path: 'public/robots.txt', type: 'text', content: 'User-agent: *\nAllow: /\n' },
   { path: '.gitignore', type: 'text', content: 'dist/\nnode_modules/\n.env\n' },
@@ -132,7 +134,7 @@ AI_API_KEY=
     type: 'markdown',
     content: `# Website Project
 
-Edit source files in src/. dist/ is generated output and should not be edited manually.
+Standard static website. Edit index.html, css/main.css, and js/main.js.
 `,
   },
 ]
