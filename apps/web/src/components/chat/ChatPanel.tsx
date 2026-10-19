@@ -18,6 +18,7 @@ interface ChatPanelProps {
   projectName?: string
   projectSubtitle?: string
   onCollapseSidebar?: () => void
+  onRenameProject?: (newTitle: string) => void
   selectedModelId?: string
   onModelChange?: (modelId: string) => void
   replyContext?: ComposerReplyContext | null
@@ -121,6 +122,7 @@ export function ChatPanel({
   onModelChange,
   replyContext,
   onClearReplyContext,
+  onRenameProject,
 }: ChatPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerRef = useRef<HTMLDivElement>(null)
@@ -154,7 +156,7 @@ export function ChatPanel({
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 shadow-sm transition-colors">
-      <ChatPanelHeader projectName={projectName} projectSubtitle={projectSubtitle} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} onCollapseSidebar={onCollapseSidebar} />
+      <ChatPanelHeader projectName={projectName} projectSubtitle={projectSubtitle} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} onCollapseSidebar={onCollapseSidebar} onRenameProject={onRenameProject} />
       <div className="relative flex flex-1 flex-col min-h-0">
         <ChatTurnList scrollContainerRef={scrollContainerRef} messagesEndRef={messagesEndRef} turnsWithIterations={turnsWithIterations} handleFormSubmit={handleFormSubmit} isTyping={isTyping} isStreaming={isStreaming} extraBottomPadding={composerHeight} />
         <div ref={composerRef} className="absolute bottom-0 left-0 right-0 z-10 pointer-events-none bg-gradient-to-t from-white via-white/90 to-transparent pt-6 dark:from-slate-900 dark:via-slate-900/90">

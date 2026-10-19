@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ArrowUp,
   Utensils,
@@ -8,14 +8,15 @@ import {
   Check,
   Loader2,
   Paperclip,
-  ImageIcon,
-  X,
+  UploadCloud,
   Code2,
   Atom,
 } from 'lucide-react'
 import { Button } from './Button'
 import { fetchModels, type AIModel } from '@/api/models'
 import { cn } from '@/lib/utils'
+import { ImageAttachmentPreview } from '@/components/common/ImageAttachmentPreview'
+import { PromptTemplateDropdown } from '@/components/common/PromptTemplateDropdown'
 
 export interface PromptInputBoxProps {
   onGenerate: (prompt: string, modelId: string, planMode?: boolean, images?: File[]) => void
@@ -83,8 +84,84 @@ export const PromptInputBox: React.FC<PromptInputBoxProps> = ({
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [images, setImages] = useState<File[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const dragCounterRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const addImages = useCallback((newFiles: File[]) => {
+    setImages((prev) => {
+      const existing = new Set(prev.map((f) => `${f.name}_${f.size}`))
+      const unique = newFiles.filter((f) => !existing.has(`${f.name}_${f.size}`))
+      return [...prev, ...unique].slice(0, 4)
+    })
+  }, [])
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files || [])
+    const imageFiles = files.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      addImages(imageFiles)
+      return
+    }
+
+    const items = e.clipboardData?.items
+    if (items) {
+      const itemFiles: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) itemFiles.push(file)
+        }
+      }
+      if (itemFiles.length > 0) {
+        e.preventDefault()
+        addImages(itemFiles)
+      }
+    }
+  }, [addImages])
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current += 1
+    if (e.dataTransfer?.types?.includes('Files')) {
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current -= 1
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setIsDragging(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy'
+    }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragging(false)
+
+    const droppedFiles = Array.from(e.dataTransfer?.files || [])
+    const imageFiles = droppedFiles.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      addImages(imageFiles)
+    }
+  }
 
   // Fetch available models
   useEffect(() => {
@@ -169,9 +246,9 @@ export const PromptInputBox: React.FC<PromptInputBoxProps> = ({
   }
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImages((prev) =>
-      [...prev, ...Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'))].slice(0, 4)
-    )
+    if (e.target.files) {
+      addImages(Array.from(e.target.files).filter((f) => f.type.startsWith('image/')))
+    }
     e.currentTarget.value = ''
   }
 
@@ -185,31 +262,42 @@ export const PromptInputBox: React.FC<PromptInputBoxProps> = ({
   return (
     <div className={cn('relative w-full flex flex-col', className)}>
       <div
-        className={`
-          relative group bg-card rounded-2xl border transition-all duration-300 shadow-xl shadow-foreground/5 flex flex-col
-          border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10
-        `}
+        onPaste={handlePaste}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={cn(
+          'relative group bg-card rounded-2xl border transition-all duration-300 shadow-xl shadow-foreground/5 flex flex-col',
+          'border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10',
+          isDragging && 'border-primary ring-4 ring-primary/20'
+        )}
       >
+        {/* Drag & Drop Visual Overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-background/95 backdrop-blur-xs text-primary pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-full bg-primary/10">
+              <UploadCloud className="h-6 w-6 text-primary animate-bounce" />
+            </div>
+            <div className="text-center px-4">
+              <p className="text-xs sm:text-sm font-semibold text-foreground">
+                Lepaskan gambar di sini
+              </p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
+                Lampirkan screenshot atau referensi desain (maks. 4 gambar)
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Uploaded Images Preview */}
         {images.length > 0 && (
-          <div className="px-3.5 sm:px-4 pt-3.5 sm:pt-4 flex flex-wrap gap-2">
-            {images.map((image, i) => (
-              <div
-                key={`${image.name}-${i}`}
-                className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
-              >
-                <ImageIcon className="w-3.5 h-3.5 shrink-0" />
-                <span className="max-w-32 sm:max-w-36 truncate text-[11px] sm:text-xs">{image.name}</span>
-                <button
-                  type="button"
-                  onClick={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="rounded-full p-0.5 hover:bg-muted/80 cursor-pointer"
-                  aria-label={`Hapus ${image.name}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
+          <div className="px-3.5 sm:px-4 pt-3.5 sm:pt-4">
+            <ImageAttachmentPreview
+              images={images}
+              onRemove={(idx) => setImages((prev) => prev.filter((_, i) => i !== idx))}
+              disabled={isGenerating || isSubmitting}
+            />
           </div>
         )}
 
@@ -220,6 +308,7 @@ export const PromptInputBox: React.FC<PromptInputBoxProps> = ({
           autoFocus={autoFocus}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholderText}
           className={cn(
             'w-full bg-transparent resize-none outline-none text-foreground placeholder:text-muted-foreground/40 font-sans leading-relaxed',
@@ -369,6 +458,20 @@ export const PromptInputBox: React.FC<PromptInputBoxProps> = ({
                 </>
               )}
             </div>
+
+            {/* Prompt Template Dropdown */}
+            <PromptTemplateDropdown
+              onSelectPrompt={(tplPrompt) => {
+                setPrompt(tplPrompt)
+                if (textareaRef.current) {
+                  textareaRef.current.focus()
+                }
+              }}
+              placement="bottom"
+              align="right"
+              disabled={isGenerating || isSubmitting}
+              buttonSize={isLarge ? 'lg' : 'default'}
+            />
           </div>
 
           {/* Generate Button */}

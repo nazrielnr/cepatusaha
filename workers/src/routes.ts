@@ -10,6 +10,7 @@ import {
   updateSession, 
   deleteSession 
 } from './features/sessions/routes';
+import { generateTitleHandler } from './features/sessions/title.routes';
 import { getProfile, updateProfile } from './features/profile/routes';
 import { getSessionMessages, postSessionMessages, deleteCheckpointIndicators } from './features/sessions/messages.routes';
 import { listPublications, publishSite, deletePublication, getPublishedPage } from './features/publications/routes';
@@ -37,6 +38,7 @@ export function registerRoutes(app: Hono<{ Bindings: Bindings; Variables: { auth
   app.post('/api/sessions', createSession);
   app.put('/api/sessions', updateSession);
   app.delete('/api/sessions', deleteSession);
+  app.post('/api/sessions/generate-title', generateTitleHandler);
 
   // Session messages endpoints
   app.get('/api/session-messages', getSessionMessages);

@@ -25,6 +25,7 @@ export type UseSessionManagementValue = {
   resetSessions: () => void
   refreshSessions: () => Promise<void>
   updateSessionTitle: (sessionId: string, newTitle: string) => void
+  renameSession: (sessionId: string, newTitle: string) => Promise<void>
   clearActiveSession: () => void
 }
 

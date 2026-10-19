@@ -62,7 +62,7 @@ export async function chatHandlerStream(c: HonoContext) {
 
   // Plan enforcement: monthly quota pre-flight + per-plan iteration/model caps.
   const planState = await getPlanState(c.env, auth.userId);
-  if (planState.exhausted) {
+  if (!planState.isUnlimited && planState.exhausted) {
     return c.json({
       status: 'error',
       error: {
@@ -73,7 +73,7 @@ export async function chatHandlerStream(c: HonoContext) {
   }
 
   const premiumModelRequested = requestedModel && requestedModel !== c.env.AI_DEFAULT_MODEL;
-  if (premiumModelRequested && planState.plan === 'free') {
+  if (!planState.isUnlimited && premiumModelRequested && planState.plan === 'free') {
     return c.json({
       status: 'error',
       error: { code: 'PLAN_MODEL_FORBIDDEN', message: 'Model premium hanya untuk pengguna Pro. Upgrade dulu atau gunakan model default.' }
@@ -83,7 +83,7 @@ export async function chatHandlerStream(c: HonoContext) {
   // Per-user request rate limit (declared in plan limits). Charged runs land in
   // token_usage_logs, so a request flood shows up here within one iteration of tokens.
   // ponytail: replace with Cloudflare Rate Limiting binding when traffic grows.
-  if (planState.reqPerMinute > 0) {
+  if (!planState.isUnlimited && planState.reqPerMinute > 0) {
     const recent = await createSql(c.env)`
       select count(*) as n from token_usage_logs
       where user_id = (select id from users where clerk_user_id = ${auth.userId})
@@ -136,7 +136,9 @@ export async function chatHandlerStream(c: HonoContext) {
     iterationRetries: parseInt(c.env.LOOP_ITERATION_RETRIES || '10', 10),
     // Charge tokens per iteration (not per run): aborted/failed runs pay for what
     // they consumed, and parallel runs shrink the shared budget together.
+    // Skip mid-run DB query for unlimited plan (superadmin) to preserve Cloudflare subrequest budget.
     usageReporter: (cumulative) => {
+      if (planState.isUnlimited) return Promise.resolve(9999999);
       const deltaPrompt = cumulative.prompt_tokens - lastCharged.prompt;
       const deltaCompletion = cumulative.completion_tokens - lastCharged.completion;
       lastCharged = { prompt: cumulative.prompt_tokens, completion: cumulative.completion_tokens };
@@ -151,7 +153,7 @@ export async function chatHandlerStream(c: HonoContext) {
     },
     // Rate limiting configuration
     rateLimit: {
-      enabled: c.env.RATE_LIMIT_ENABLED !== 'false',
+      enabled: !planState.isUnlimited && c.env.RATE_LIMIT_ENABLED !== 'false',
       baseDelayMs: parseInt(c.env.RATE_LIMIT_BASE_DELAY_MS || '500', 10),
       maxDelayMs: parseInt(c.env.RATE_LIMIT_MAX_DELAY_MS || '30000', 10),
       strategy: (c.env.RATE_LIMIT_STRATEGY as 'fixed' | 'linear' | 'exponential') || 'exponential',
@@ -219,7 +221,7 @@ export async function chatHandlerStream(c: HonoContext) {
     errorLog(undefined, '[chatHandlerStream] Failed to query artifacts:', err);
   }
 
-  const nativeImageMode = c.env.AI_IMAGE_MODE === 'native';
+  const nativeImageMode = c.env.AI_IMAGE_MODE !== 'tool';
   const nativeConversation = nativeImageMode ? await inlineImagesForModel(conversation, c.env) : conversation;
   const conversationCopy = nativeImageMode
     ? nativeConversation.map((msg, idx) => {
@@ -293,9 +295,11 @@ export async function chatHandlerStream(c: HonoContext) {
         const loopResult = await conversationLoop.executeLoop(messages, loopContext);
 
         if (!loopResult.success) {
-          streamManager.sendEvent('error', {
-            error: loopResult.error || 'Conversation loop failed'
-          });
+          if (!loopResult.aborted) {
+            streamManager.sendEvent('error', {
+              error: loopResult.error || 'Conversation loop failed'
+            });
+          }
           streamManager.close();
           return;
         }

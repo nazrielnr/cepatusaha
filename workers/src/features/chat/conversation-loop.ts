@@ -100,9 +100,12 @@ export class ConversationLoop {
       return { success: true, totalIterations: Math.min(iteration + 1, this.config.maxIterations), totalFunctionCalls: allToolCalls.length, finalMessage, usage: usage.total_tokens ? usage : undefined, stoppedByQuota };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      errorLog(undefined, '[ConversationLoop] Loop failed', { error: msg, iteration, sessionId: context.sessionId, duration: Date.now() - start });
-      this.streamManager?.sendEvent('error', { error: msg, iteration });
-      return { success: false, totalIterations: iteration, totalFunctionCalls: allToolCalls.length, finalMessage, error: msg };
+      const isAbort = msg.includes('aborted') || Boolean(context.signal?.aborted);
+      if (!isAbort) {
+        errorLog(undefined, '[ConversationLoop] Loop failed', { error: msg, iteration, sessionId: context.sessionId, duration: Date.now() - start });
+        this.streamManager?.sendEvent('error', { error: msg, iteration });
+      }
+      return { success: false, totalIterations: iteration, totalFunctionCalls: allToolCalls.length, finalMessage, error: msg, aborted: isAbort };
     }
   }
 
@@ -191,6 +194,13 @@ export class ConversationLoop {
   private prune(messages: ChatMessage[]): void {
     if (messages.length <= this.MAX_MESSAGE_HISTORY) return;
     const system = messages.filter((m) => m.role === 'system').slice(0, 1);
-    messages.splice(0, messages.length, ...system, ...messages.filter((m) => m.role !== 'system').slice(-(this.MAX_MESSAGE_HISTORY - system.length)));
+    const nonSystem = messages.filter((m) => m.role !== 'system');
+    const firstUser = nonSystem.find((m) => m.role === 'user');
+    const rest = nonSystem.filter((m) => m !== firstUser);
+
+    // Always preserve system prompt and original user prompt with requirements/images
+    const keepCount = Math.max(1, this.MAX_MESSAGE_HISTORY - system.length - (firstUser ? 1 : 0));
+    const tail = rest.slice(-keepCount);
+    messages.splice(0, messages.length, ...system, ...(firstUser ? [firstUser] : []), ...tail);
   }
 }

@@ -74,6 +74,10 @@ export async function sendChatMessageStream(conversation: any[], sessionId: stri
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  // A turn ends with exactly one terminal event (done | error). If the stream closes
+  // without either (Worker killed mid-run, proxy/network cut, upstream stall), the UI
+  // would sit on "Thinking..." forever and the turn would never be saved.
+  let terminated = false
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -92,8 +96,8 @@ export async function sendChatMessageStream(conversation: any[], sessionId: stri
           else if (event.type === 'function_call_complete') callbacks.onFunctionCallComplete?.(event as FunctionCallCompleteEvent)
           else if (event.type === 'stream_start') callbacks.onStreamStart?.(event as StreamStartEvent)
           else if (event.type === 'iteration_start') callbacks.onIterationStart?.(event as IterationStartEvent)
-          else if (event.type === 'done') callbacks.onDone?.(event)
-          else if (event.type === 'error') callbacks.onError?.(event.error || 'Stream error')
+          else if (event.type === 'done') { terminated = true; callbacks.onDone?.(event) }
+          else if (event.type === 'error') { terminated = true; callbacks.onError?.(event.error || 'Stream error') }
         } catch (error) {
           console.error('[SSE] parse failed:', error)
         }
@@ -101,5 +105,8 @@ export async function sendChatMessageStream(conversation: any[], sessionId: stri
     }
   } finally {
     reader.releaseLock()
+  }
+  if (!terminated && !signal?.aborted) {
+    callbacks.onError?.('Koneksi ke server terputus sebelum AI selesai. Pekerjaan yang sudah dibuat tersimpan; kirim "lanjutkan" untuk meneruskan.')
   }
 }

@@ -15,6 +15,7 @@ interface AppRoutesProps {
   onCreateSession: (message: string, modelId?: string, planMode?: boolean, images?: File[]) => Promise<void>
   onSelectSession: (sessionId: string) => Promise<void>
   onDeleteSession: (sessionId: string) => Promise<void>
+  onRenameSession?: (sessionId: string, newTitle: string) => Promise<void> | void
   onRefreshSessions?: () => Promise<void>
 
   // Workspace page props
@@ -39,6 +40,7 @@ export function AppRoutes({
   onCreateSession,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   onRefreshSessions,
   workspaceProps,
   onPageError,
@@ -119,6 +121,7 @@ export function AppRoutes({
                     onCreateSession={onCreateSession}
                     onSelectSession={onSelectSession}
                     onDeleteSession={onDeleteSession}
+                    onRenameSession={onRenameSession}
                     onRefreshSessions={onRefreshSessions}
                   />
                 </ErrorBoundary>

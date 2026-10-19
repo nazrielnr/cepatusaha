@@ -54,6 +54,12 @@ export function useAppWorkspaceProps({ appState, chatState, previewState, userId
     files: previewState.projectFiles,
     projectName: appState.currentSession?.title || 'Proyek Baru',
     projectSubtitle: appState.profileDraft?.businessName || 'Website Builder',
+    onRenameProject: (newTitle: string) => {
+      const sessionId = appState.currentSession?.id || appState.activeSessionId
+      if (sessionId) {
+        void appState.renameSession(sessionId, newTitle)
+      }
+    },
     onRefresh: handleManualRefresh || previewState.handleManualRefresh,
     fileTreeRefreshTrigger: previewState.fileTreeRefreshTrigger,
     highlightedFilePaths: previewState.highlightedFilePaths,

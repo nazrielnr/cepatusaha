@@ -9,9 +9,9 @@ interface HeroProps {
 
 export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
   return (
-    <section className="relative w-full min-h-[100dvh] md:min-h-[88vh] pt-20 sm:pt-24 md:pt-32 pb-12 sm:pb-16 md:pb-20 px-3 sm:px-4 flex flex-col items-center justify-center bg-background overflow-hidden">
+    <section className="relative z-20 w-full min-h-[100dvh] md:min-h-[88vh] pt-20 sm:pt-24 md:pt-32 pb-12 sm:pb-16 md:pb-20 px-3 sm:px-4 flex flex-col items-center justify-center bg-background">
       {/* Background Layers */}
-      <div className="absolute inset-0 z-0 select-none">
+      <div className="absolute inset-0 z-0 select-none overflow-hidden pointer-events-none">
         {/* Interactive Geometric Grid */}
         <InteractiveGridPattern />
 
@@ -69,7 +69,7 @@ export const Hero: React.FC<HeroProps> = ({ onGenerate, isGenerating }) => {
       </div>
 
       {/* Input Area */}
-      <div className="relative w-full max-w-2xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
+      <div className="relative z-30 w-full max-w-2xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
         <PromptInputBox onGenerate={onGenerate} isGenerating={isGenerating} showSuggestions={true} />
       </div>
     </section>

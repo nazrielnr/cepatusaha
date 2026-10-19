@@ -44,4 +44,7 @@ export type SessionUpsertPayload = {
   lastPreview?: PreviewResponse | null
   lastGeneratedCopy?: GeneratedCopy | null
   previewThumbnail?: string
+  customTitle?: boolean
+  isCustomTitle?: boolean
+  metadata?: Record<string, unknown>
 }

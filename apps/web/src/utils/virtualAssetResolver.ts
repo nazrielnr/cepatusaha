@@ -55,7 +55,7 @@ export function getProjectAssetFiles(files: ProjectAssetFile[]): ProjectAssetFil
   return files.filter(f => {
     if (!f.file_path || !f.content) return false
     const isAsset = isAssetFilePath(f.file_path) || f.file_path.includes('/assets/') || f.file_path.startsWith('assets/')
-    const hasUrl = f.content.startsWith('http://') || f.content.startsWith('https://') || f.content.startsWith('/api/assets/')
+    const hasUrl = f.content.startsWith('http://') || f.content.startsWith('https://') || f.content.startsWith('/api/assets/') || f.content.startsWith('data:')
     return isAsset && hasUrl
   })
 }

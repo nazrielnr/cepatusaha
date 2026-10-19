@@ -59,6 +59,7 @@ export function useAppState({ requireToken, enabled }: UseAppStateOptions) {
     resetSessions,
     refreshSessions,
     updateSessionTitle,
+    renameSession,
     clearActiveSession,
   } = useSessionManagement({
     defaultProfile: DEFAULT_PROFILE,
@@ -151,6 +152,7 @@ export function useAppState({ requireToken, enabled }: UseAppStateOptions) {
     resetSessions,
     refreshSessions,
     updateSessionTitle,
+    renameSession,
     clearActiveSession,
 
     // Legacy compatibility - these will be removed

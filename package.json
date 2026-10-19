@@ -17,7 +17,7 @@
     "deploy": "pnpm run deploy:workers && pnpm run deploy:web",
     "sync:production-secrets": "node scripts/sync-production-secrets.mjs",
     "deploy:workers": "pnpm run sync:production-secrets && pnpm --filter=cepatusaha-workers deploy:production",
-    "deploy:web": "npx vercel --prod --yes",
+    "deploy:web": "node scripts/deploy-web.mjs",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",

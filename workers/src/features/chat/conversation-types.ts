@@ -67,5 +67,6 @@ export interface LoopResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   /** True when the loop stopped because the per-run token cap was hit. */
   stoppedByQuota?: boolean;
+  aborted?: boolean;
   error?: string;
 }

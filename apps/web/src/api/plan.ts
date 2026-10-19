@@ -13,6 +13,7 @@ export interface PlanState {
   maxIterations: number
   reqPerMinute: number
   exhausted: boolean
+  isUnlimited?: boolean
 }
 
 interface PlanResponse {

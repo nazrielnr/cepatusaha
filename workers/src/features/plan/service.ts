@@ -1,5 +1,6 @@
 import type { Bindings } from '../../bindings'
 import { createSql } from '../../db'
+import { isSuperAdmin } from '../admin/service'
 import { computeCost, getPlanLimits, isPro, monthKey } from './pricing'
 
 export type PlanName = 'free' | 'pro'
@@ -13,6 +14,7 @@ export interface PlanState {
   maxIterations: number
   reqPerMinute: number
   exhausted: boolean
+  isUnlimited?: boolean
 }
 
 interface UsageCharge {
@@ -57,6 +59,22 @@ export async function getPlanState(env: Bindings, clerkUserId: string): Promise<
     monthUsedTokens = 0
   }
 
+  // Super Admin bypass: Unlimited tokens, unlimited iterations, zero artificial delays, no plan blocking
+  const admin = await isSuperAdmin(env, clerkUserId)
+  if (admin) {
+    return {
+      plan: 'pro',
+      periodKey,
+      monthUsedTokens,
+      monthLimitTokens: 999_999_999,
+      monthRemainingTokens: 999_999_999,
+      maxIterations: 100,
+      reqPerMinute: 0, // 0 = disabled RPM limit
+      exhausted: false,
+      isUnlimited: true,
+    }
+  }
+
   const plan: PlanName = isPro(user.plan) ? 'pro' : 'free'
   const limits = getPlanLimits(env)[plan]
   const monthRemainingTokens = Math.max(0, limits.monthlyTokens - monthUsedTokens)
@@ -70,6 +88,7 @@ export async function getPlanState(env: Bindings, clerkUserId: string): Promise<
     maxIterations: limits.maxIterations,
     reqPerMinute: limits.reqPerMinute,
     exhausted: monthRemainingTokens <= 0,
+    isUnlimited: false,
   }
 }
 
@@ -98,6 +117,11 @@ export async function chargeTokenUsage(env: Bindings, clerkUserId: string, charg
            false
     from users where clerk_user_id = ${clerkUserId}
   `
+
+  const admin = await isSuperAdmin(env, clerkUserId)
+  if (admin) {
+    return 999_999_999
+  }
 
   const row = rows[0]
   if (!row) return undefined

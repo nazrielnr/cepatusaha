@@ -15,7 +15,7 @@ export function flattenSession<T extends Record<string, unknown>>(session: T | n
 }
 
 function metadataFrom(body: Record<string, unknown>, current: Record<string, unknown> = {}) {
-  const metadata = { ...current, ...(body.metadata || {}) }
+  const metadata: Record<string, unknown> = { ...current, ...(body.metadata || {}) }
   const pairs: Array<[string, string, unknown]> = [
     ['status', 'status', 'active'],
     ['conversationStep', 'conversation_step', 'idle'],
@@ -29,6 +29,15 @@ function metadataFrom(body: Record<string, unknown>, current: Record<string, unk
     if (body[src] !== undefined) metadata[dst] = body[src]
     else if (!(dst in metadata)) metadata[dst] = fallback
   }
+
+  // Handle custom title flags
+  if (body.customTitle !== undefined) metadata.custom_title = Boolean(body.customTitle)
+  if (body.custom_title !== undefined) metadata.custom_title = Boolean(body.custom_title)
+  if (body.isCustomTitle !== undefined) metadata.custom_title = Boolean(body.isCustomTitle)
+  if (body.is_custom_title !== undefined) metadata.custom_title = Boolean(body.is_custom_title)
+  if (body.titleStage !== undefined) metadata.title_stage = body.titleStage
+  if (body.title_stage !== undefined) metadata.title_stage = body.title_stage
+
   return metadata
 }
 

@@ -25,22 +25,38 @@ export async function analyzeImageTool(env: Bindings, input: { image_url?: strin
   return { image_context };
 }
 
+// Cloudflare Workers free tier allows only ~10ms CPU per invocation. base64
+// conversion of a multi-MB image (String.fromCharCode + btoa) blows that budget
+// instantly -> "Worker exceeded CPU time limit". Chat uploads are downscaled
+// client-side (apps/web/src/api/assets.ts), and this hard cap refuses to inline
+// anything larger, falling back to the raw URL.
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+
 export async function imageToModelUrl(env: Bindings, image: ImageRef): Promise<string | undefined> {
+  if (!image.url && !image.key) return undefined;
+  if (image.url?.startsWith('data:')) return image.url;
   const objectKey = image.key || keyFromAssetUrl(image.url || '');
-  if (!objectKey) return image.url || undefined;
-  const object = await env.ASSETS_BUCKET.get(objectKey);
-  if (!object) return image.url || undefined;
-  const bytes = new Uint8Array(await object.arrayBuffer());
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return `data:${image.type || object.httpMetadata?.contentType || 'image/png'};base64,${btoa(binary)}`;
+  if (!objectKey || !env.ASSETS_BUCKET) return image.url || undefined;
+  try {
+    const object = await env.ASSETS_BUCKET.get(objectKey);
+    if (!object) return image.url || undefined;
+    if (object.size > MAX_INLINE_IMAGE_BYTES) return image.url || undefined;
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${image.type || object.httpMetadata?.contentType || 'image/png'};base64,${btoa(binary)}`;
+  } catch {
+    return image.url || undefined;
+  }
 }
 
 function keyFromAssetUrl(url: string): string | undefined {
-  try {
-    const marker = '/api/assets/object/';
-    const path = new URL(url).pathname;
-    const i = path.indexOf(marker);
-    return i === -1 ? undefined : decodeURIComponent(path.slice(i + marker.length));
-  } catch { return undefined; }
+  if (!url) return undefined;
+  const marker = '/api/assets/object/';
+  const i = url.indexOf(marker);
+  if (i !== -1) {
+    const rawKey = url.slice(i + marker.length).split('?')[0];
+    return decodeURIComponent(rawKey);
+  }
+  return undefined;
 }

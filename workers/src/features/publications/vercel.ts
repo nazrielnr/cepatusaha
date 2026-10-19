@@ -158,6 +158,51 @@ export async function resolveProjectDomain(
 }
 
 /**
+ * Checks if a project with the given name or ID already exists on Vercel.
+ */
+export async function getVercelProject(
+  env: Bindings,
+  projectNameOrId: string
+): Promise<{ id: string; name: string } | null> {
+  if (!env.VERCEL_TOKEN) return null
+  const teamQuery = env.VERCEL_TEAM_ID ? `?teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}` : ''
+  try {
+    const res = await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(projectNameOrId)}${teamQuery}`, {
+      headers: { Authorization: `Bearer ${env.VERCEL_TOKEN}` },
+    })
+    if (res.ok) {
+      const data = await res.json() as { id: string; name: string }
+      return data
+    }
+    return null
+  } catch (err) {
+    console.warn('[Vercel] Failed to check project existence:', err)
+    return null
+  }
+}
+
+/**
+ * Deletes a project on Vercel by project ID or name.
+ */
+export async function deleteVercelProject(
+  env: Bindings,
+  projectIdOrName: string
+): Promise<boolean> {
+  if (!env.VERCEL_TOKEN) return false
+  const teamQuery = env.VERCEL_TEAM_ID ? `?teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}` : ''
+  try {
+    const res = await fetch(`https://api.vercel.com/v9/projects/${encodeURIComponent(projectIdOrName)}${teamQuery}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${env.VERCEL_TOKEN}` },
+    })
+    return res.ok
+  } catch (err) {
+    console.warn('[Vercel] Failed to delete project:', err)
+    return false
+  }
+}
+
+/**
  * Deploys pages to Vercel as a production deployment on an existing or new project.
  * Updates an existing project if existingProjectId is provided, ensuring seamless AI updates.
  * Returns the stable production domain URL instead of the ephemeral deployment URL.
@@ -169,6 +214,16 @@ export async function deployToVercel(
   options?: DeployOptions
 ): Promise<VercelDeployment> {
   const teamQuery = env.VERCEL_TEAM_ID ? `?teamId=${encodeURIComponent(env.VERCEL_TEAM_ID)}` : ''
+
+  // Project Isolation Guard:
+  // If this is a fresh project deployment (no existingProjectId), verify that the project name
+  // does not already exist in Vercel to prevent silently overwriting an older project's deployment.
+  if (!options?.existingProjectId) {
+    const existingRemote = await getVercelProject(env, name)
+    if (existingRemote) {
+      throw new Error(`Nama domain/proyek "${name}" sudah terdaftar di Vercel oleh proyek lain. Silakan gunakan nama domain yang berbeda agar tidak menimpa proyek yang sudah ada.`)
+    }
+  }
 
   // Clean file paths relative to project root without leading slashes.
   const files = await Promise.all(

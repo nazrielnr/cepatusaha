@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useUser, useClerk } from '@clerk/clerk-react'
-import { Crown, Loader2, LogOut, Zap, RotateCw, Calendar, AlertCircle, Layers } from 'lucide-react'
+import { Crown, Loader2, LogOut, Zap, RotateCw, Calendar, AlertCircle, Layers, ShieldCheck } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -51,13 +51,14 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
   ).toUpperCase()
 
   const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || ''
-  const isPro = plan?.plan === 'pro'
+  const isUnlimited = Boolean(plan?.isUnlimited)
+  const isPro = plan?.plan === 'pro' || isUnlimited
 
   // Progress metrics calculation
   const used = plan?.monthUsedTokens ?? 0
   const limit = plan?.monthLimitTokens ?? 1
-  const pct = Math.min(100, Math.max(0, Math.round((used / limit) * 100)))
-  const tone = plan?.exhausted ? 'exhausted' : limit > 0 && plan && (plan.monthRemainingTokens / limit) < 0.2 ? 'warn' : 'normal'
+  const pct = isUnlimited ? 100 : Math.min(100, Math.max(0, Math.round((used / limit) * 100)))
+  const tone = isUnlimited ? 'unlimited' : plan?.exhausted ? 'exhausted' : limit > 0 && plan && (plan.monthRemainingTokens / limit) < 0.2 ? 'warn' : 'normal'
 
   return (
     <DropdownMenu>
@@ -77,10 +78,20 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
             <span
               className={cn(
                 'absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full ring-2 ring-background shadow-xs transition-transform duration-200 group-hover:scale-110',
-                isPro ? 'bg-amber-500 text-white' : 'bg-primary text-primary-foreground'
+                isUnlimited
+                  ? 'bg-purple-600 text-white'
+                  : isPro
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-primary text-primary-foreground'
               )}
             >
-              {isPro ? <Crown className="h-2.5 w-2.5" /> : <Zap className="h-2.5 w-2.5 fill-current" />}
+              {isUnlimited ? (
+                <ShieldCheck className="h-2.5 w-2.5" />
+              ) : isPro ? (
+                <Crown className="h-2.5 w-2.5" />
+              ) : (
+                <Zap className="h-2.5 w-2.5 fill-current" />
+              )}
             </span>
           </button>
         )}
@@ -100,11 +111,15 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
                 {initials}
               </AvatarFallback>
             </Avatar>
-            {isPro && (
+            {isUnlimited ? (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-600 text-white shadow-xs">
+                <ShieldCheck className="h-2.5 w-2.5" />
+              </span>
+            ) : isPro ? (
               <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-white shadow-xs">
                 <Crown className="h-2.5 w-2.5" />
               </span>
-            )}
+            ) : null}
           </div>
 
           <div className="min-w-0 flex-1">
@@ -121,13 +136,21 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
               variant="outline"
               className={cn(
                 'shrink-0 px-2 py-0.5 text-[11px] font-semibold gap-1 rounded-full capitalize shadow-2xs',
-                isPro
+                isUnlimited
+                  ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                  : isPro
                   ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
                   : 'bg-muted/80 text-muted-foreground border-border/80'
               )}
             >
-              {isPro ? <Crown className="h-3 w-3 fill-amber-500/20" /> : <Zap className="h-3 w-3 fill-current text-primary" />}
-              {isPro ? 'Pro' : 'Free'}
+              {isUnlimited ? (
+                <ShieldCheck className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+              ) : isPro ? (
+                <Crown className="h-3 w-3 fill-amber-500/20" />
+              ) : (
+                <Zap className="h-3 w-3 fill-current text-primary" />
+              )}
+              {isUnlimited ? 'Super Admin' : isPro ? 'Pro' : 'Free'}
             </Badge>
           )}
         </DropdownMenuLabel>
@@ -161,14 +184,16 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
                   <span
                     className={cn(
                       'text-[11px] font-semibold px-1.5 py-0.5 rounded-md border shadow-2xs',
-                      tone === 'exhausted'
+                      tone === 'unlimited'
+                        ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                        : tone === 'exhausted'
                         ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20'
                         : tone === 'warn'
                         ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
                         : 'bg-background text-muted-foreground border-border/60'
                     )}
                   >
-                    {pct}%
+                    {isUnlimited ? '∞ Unlimited' : `${pct}%`}
                   </span>
                   <button
                     type="button"
@@ -196,7 +221,9 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
                 <div
                   className={cn(
                     'h-full rounded-full transition-all duration-500',
-                    tone === 'exhausted'
+                    tone === 'unlimited'
+                      ? 'bg-gradient-to-r from-purple-500 to-indigo-500'
+                      : tone === 'exhausted'
                       ? 'bg-red-500'
                       : tone === 'warn'
                       ? 'bg-amber-500'
@@ -209,24 +236,26 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
               {/* Token Breakdown Numbers */}
               <div className="flex items-center justify-between text-[11px]">
                 <span className="text-muted-foreground">
-                  <strong className="font-semibold text-foreground">{num(plan.monthUsedTokens)}</strong> / {num(plan.monthLimitTokens)}
+                  <strong className="font-semibold text-foreground">{num(plan.monthUsedTokens)}</strong> {isUnlimited ? 'token digunakan' : `/ ${num(plan.monthLimitTokens)}`}
                 </span>
                 <span
                   className={cn(
                     'font-medium',
-                    tone === 'exhausted'
+                    tone === 'unlimited'
+                      ? 'text-purple-600 dark:text-purple-400 font-semibold'
+                      : tone === 'exhausted'
                       ? 'text-red-600 dark:text-red-400 font-semibold'
                       : 'text-muted-foreground'
                   )}
                 >
-                  {num(plan.monthRemainingTokens)} sisa
+                  {isUnlimited ? 'Tanpa batas' : `${num(plan.monthRemainingTokens)} sisa`}
                 </span>
               </div>
             </div>
 
             {/* Quick Metrics Grid */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="col-span-2 rounded-xl border border-border/60 bg-muted/20 dark:bg-muted/5 p-2.5">
+              <div className={cn("rounded-xl border border-border/60 bg-muted/20 dark:bg-muted/5 p-2.5", isUnlimited ? "col-span-1" : "col-span-2")}>
                 <div className="flex items-center gap-1.5 text-muted-foreground text-[11px] mb-1">
                   <Calendar className="h-3 w-3 text-primary/70" />
                   <span>Reset kuota</span>
@@ -235,10 +264,21 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
                   {nextResetLabel(plan.periodKey)}
                 </p>
               </div>
+              {isUnlimited && (
+                <div className="col-span-1 rounded-xl border border-border/60 bg-muted/20 dark:bg-muted/5 p-2.5">
+                  <div className="flex items-center gap-1.5 text-muted-foreground text-[11px] mb-1">
+                    <ShieldCheck className="h-3 w-3 text-purple-500" />
+                    <span>Rate Limit</span>
+                  </div>
+                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    Nonaktif (100 iter)
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Exhausted Quota Banner */}
-            {plan.exhausted && (
+            {plan.exhausted && !isUnlimited && (
               <div className="flex items-start gap-2 rounded-xl bg-red-500/10 border border-red-500/20 p-2.5 text-xs text-red-600 dark:text-red-400">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <div className="leading-snug">
@@ -251,7 +291,16 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
             )}
 
             {/* Plan Info Badge / Pro Feature Hint */}
-            {isPro && (
+            {isUnlimited ? (
+              <div className="rounded-xl bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-transparent border border-purple-500/20 p-2.5">
+                <div className="flex items-center gap-2 text-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    Akses <strong className="text-foreground font-semibold">Super Admin</strong> · Token & Iterasi tanpa batas
+                  </span>
+                </div>
+              </div>
+            ) : isPro ? (
               <div className="rounded-xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 p-2.5">
                 <div className="flex items-center gap-2 text-foreground">
                   <Layers className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -260,7 +309,7 @@ export function UsageMenu({ trigger, align = 'end', className }: UsageMenuProps)
                   </span>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         ) : null}
 

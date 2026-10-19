@@ -58,6 +58,7 @@ interface WorkspacePageProps {
   onStreamingFileSelect?: (file: StreamingFile) => void
   projectName?: string
   projectSubtitle?: string
+  onRenameProject?: (newTitle: string) => void
   navigateToPage?: (href: string) => string | null
   pageBlobMappings?: { path: string; content?: string }[]
   currentPage?: string
@@ -103,6 +104,7 @@ export default function WorkspacePage({
   onStreamingFileSelect,
   projectName = 'My Website',
   projectSubtitle = 'Website Builder',
+  onRenameProject,
   navigateToPage,
   pageBlobMappings = [],
   currentPage,
@@ -208,6 +210,7 @@ export default function WorkspacePage({
               currentMode={currentMode}
               projectName={projectName}
               projectSubtitle={projectSubtitle}
+              onRenameProject={onRenameProject}
               selectedModelId={selectedModelId}
               onModelChange={onModelChange}
               replyContext={replyContext}
@@ -265,6 +268,7 @@ export default function WorkspacePage({
               currentMode={currentMode}
               projectName={projectName}
               projectSubtitle={projectSubtitle}
+              onRenameProject={onRenameProject}
               selectedModelId={selectedModelId}
               onModelChange={onModelChange}
               replyContext={replyContext}

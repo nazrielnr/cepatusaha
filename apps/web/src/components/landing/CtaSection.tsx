@@ -8,7 +8,7 @@ interface CtaSectionProps {
 
 export const CtaSection: React.FC<CtaSectionProps> = ({ onGenerate, isGenerating }) => {
   return (
-    <section className="w-full py-12 sm:py-16 md:py-20 px-4 md:px-12 bg-background border-b border-border relative overflow-hidden">
+    <section className="w-full py-12 sm:py-16 md:py-20 px-4 md:px-12 bg-background border-b border-border relative z-20">
       <div className="max-w-6xl mx-auto relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
         {/* Left Side: Call to Action (Ajakan) */}
         <div className="lg:col-span-5 flex flex-col gap-3 sm:gap-4 text-left">

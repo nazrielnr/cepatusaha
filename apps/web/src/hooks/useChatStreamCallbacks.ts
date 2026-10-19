@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { appendSessionMessages } from '../api'
+import { appendSessionMessages, generateSessionTitle } from '../api'
 import { getProjectFiles } from '../api/files'
 import type { StreamCallbacks } from '../api/chat'
 import type { ChatMessage, ChatMode } from '@/types/chat'
@@ -22,6 +22,9 @@ type UseChatStreamCallbacksOptions = {
   createId: () => string
   deriveIterationsFromMessages: (list: ChatMessage[]) => ChatMessage[]
   fallbackMessage: string
+  onSessionTitleUpdate?: (sessionId: string, newTitle: string) => void
+  sessionTitleStageRef?: React.MutableRefObject<Map<string, 'initial' | 'completion'>>
+  customTitledSessionsRef?: React.MutableRefObject<Set<string>>
 }
 
 const fileOps = ['write_file', 'create_file', 'edit_file', 'delete_file', 'replace_code', 'insert_code', 'batch_replace', 'copy_file', 'rename_file']
@@ -34,7 +37,7 @@ export function useChatStreamCallbacks(options: UseChatStreamCallbacksOptions) {
   const previewRefreshSeqRef = useRef(0)
   return useCallback((sessionId: string, run: { mode: ChatMode; userMessage: ChatMessage; allIterations: ChatMessage[]; placeholderAiMessageId?: string }): StreamCallbacks => {
     const { mode, userMessage, allIterations, placeholderAiMessageId } = run
-    const { currentSessionId, projectId, requireToken, onPreviewRefresh, setMessages, setIsTyping, isSubmittingRef, sessionIdRef, derivedProjectIdRef, currentAiMessageIdRef, messagesRef, turnStartIndexRef, createId, deriveIterationsFromMessages, fallbackMessage } = options
+    const { currentSessionId, projectId, requireToken, onPreviewRefresh, setMessages, setIsTyping, isSubmittingRef, sessionIdRef, derivedProjectIdRef, currentAiMessageIdRef, messagesRef, turnStartIndexRef, createId, deriveIterationsFromMessages, fallbackMessage, onSessionTitleUpdate, sessionTitleStageRef, customTitledSessionsRef } = options
     const messageByIteration = new Map<number, string>()
     const toolNameById = new Map<string, string>()
     if (placeholderAiMessageId) {
@@ -110,7 +113,10 @@ export function useChatStreamCallbacks(options: UseChatStreamCallbacksOptions) {
 
     return {
       onStreamStart: (event) => {
-        if (event.projectId && !derivedProjectIdRef.current) derivedProjectIdRef.current = event.projectId
+        // ponytail: ALWAYS update (not just when unset) — the server may resolve a
+        // project id late (e.g. first turn created it); a stale derived id would send
+        // later requests to the WRONG project.
+        if (event.projectId) derivedProjectIdRef.current = event.projectId
       },
 
       onIterationStart: (event) => {
@@ -225,10 +231,51 @@ export function useChatStreamCallbacks(options: UseChatStreamCallbacksOptions) {
           setMessages((prev) => [...prev, { id: createId(), sender: 'ai', content: '', createdAt: new Date().toISOString(), tool_calls: [], metadata: { mode, error: true, error_code: 'PLAN_QUOTA_EXCEEDED' } }])
         }
         await saveTurn({ totalIterations: event.totalIterations, totalFunctionCalls: event.totalFunctionCalls })
+
+        // State 2: When AI finishes generating everything, update title based on generated work
+        const targetSessionId = sessionIdRef.current || sessionId
+        // The server runs this stage once per session and derives the title from the
+        // generated site, so follow-up turns ("ganti harga ...") never retitle it.
+        if (
+          targetSessionId &&
+          !customTitledSessionsRef?.current?.has(targetSessionId) &&
+          sessionTitleStageRef?.current?.get(targetSessionId) !== 'completion'
+        ) {
+          void requireToken().then(async (token) => {
+            const res = await generateSessionTitle({
+              sessionId: targetSessionId,
+              stage: 'completion',
+            }, token)
+
+            if (res?.status === 'success' || res?.reason === 'completion_already_done') {
+              // Block a slow initial-stage response from overwriting the final title
+              sessionTitleStageRef?.current?.set(targetSessionId, 'completion')
+            }
+
+            // Race check: Ensure user hasn't renamed during the request
+            if (
+              res?.title &&
+              res.status === 'success' &&
+              !customTitledSessionsRef?.current?.has(targetSessionId)
+            ) {
+              onSessionTitleUpdate?.(targetSessionId, res.title)
+            }
+          }).catch((titleError) => {
+            console.error('[useChatStreamCallbacks] State 2 title generation failed:', titleError)
+          })
+        }
       },
 
       onError: (error) => {
         console.error('[useChatState] Stream error:', error)
+        setIsTyping(false)
+        isSubmittingRef.current = false
+        // Clear the dangling "Thinking..." / pending tool state of this turn's bubbles.
+        setMessages((prev) => prev.map((msg, i) => i < turnStartIndexRef.current || msg.sender !== 'ai' ? msg : {
+          ...msg,
+          tool_calls: msg.tool_calls?.map((tc: any) => tc.status === 'pending' ? { ...tc, status: 'error', error: 'Interrupted' } : tc),
+          metadata: { ...(msg.metadata || {}), is_thinking: false, reasoning_done: true, phase: 'complete', turn_done: true },
+        }))
         const errorMessage: ChatMessage = { id: createId(), sender: 'ai', content: fallbackMessage, createdAt: new Date().toISOString(), metadata: { mode, error: true, stream_error: error, turn_done: true } }
         setMessages((prev) => [...prev, errorMessage])
         remember(errorMessage)

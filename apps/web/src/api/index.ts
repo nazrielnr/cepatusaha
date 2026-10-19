@@ -17,6 +17,7 @@ export {
   createSession,
   updateSession,
   deleteSession,
+  generateSessionTitle,
   mapSessionFromBackend,
   mapSessionToBackend,
 } from './sessions'

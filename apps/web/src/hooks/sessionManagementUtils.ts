@@ -8,15 +8,18 @@ export const cloneProfile = (profile: Profile): Profile => ({
   socialLinks: { ...profile.socialLinks },
 })
 
+import { decodeHtmlEntities } from '../api/sessionMappers'
+
 export const ensureSessionTitle = (session: SessionData): SessionData => {
   const layoutBlueprint = session.layoutBlueprint ?? null
   const modeHistory = session.modeHistory ?? []
   const lastGeneratedCopy = session.lastGeneratedCopy ?? null
 
   // Use AI-generated title from database, fallback to 'Proyek Baru'
-  const title = session.title && session.title.trim().length > 0
+  const rawTitle = session.title && session.title.trim().length > 0
     ? session.title
     : 'Proyek Baru'
+  const title = decodeHtmlEntities(rawTitle)
 
   return {
     ...session,

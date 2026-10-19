@@ -101,8 +101,8 @@ export class OpenAICompatibleProvider extends BaseAIProvider {
     }
     
     this.name = config.providerName;
-    this.apiKey = config.apiKey;
-    this.baseUrl = config.baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.apiKey = config.apiKey.trim();
+    this.baseUrl = config.baseUrl.trim().replace(/\/+$/, ''); // Remove trailing slashes and spaces
     this.extraHeaders = config.extraHeaders || {};
     this.nodeEnv = config.nodeEnv;
   }

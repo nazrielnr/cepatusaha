@@ -10,6 +10,10 @@ const num = (n: number): string => n.toLocaleString('id-ID')
 export function LimitReached() {
   const { plan, loading, refresh } = usePlan()
 
+  if (plan?.isUnlimited) {
+    return null
+  }
+
   const used = plan?.monthUsedTokens ?? 0
   const limit = plan?.monthLimitTokens ?? 1
   const pct = Math.min(100, Math.max(0, Math.round((used / limit) * 100)))

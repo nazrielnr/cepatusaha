@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Globe, MoreHorizontal, Trash2 } from 'lucide-react'
+import React, { useEffect, useState, useRef } from 'react'
+import { Globe, MoreHorizontal, Trash2, Pencil, Check, X } from 'lucide-react'
 import { getCachedThumbnail } from '@/utils/thumbnailCache'
 import { handleProjectCardHover, cancelPrefetch } from '@/utils/prefetch'
 import { useAuth } from '@clerk/clerk-react'
@@ -13,12 +13,20 @@ export interface ProjectCardProps {
   }
   onSelect: (sessionId: string) => void
   onDelete: (sessionId: string) => void
+  onRename?: (sessionId: string, newTitle: string) => void
 }
 
-export function ProjectCard({ session, onSelect, onDelete }: ProjectCardProps) {
+export function ProjectCard({ session, onSelect, onDelete, onRename }: ProjectCardProps) {
   const { getToken } = useAuth()
   const [thumbnail, setThumbnail] = useState<string | undefined>(session.previewThumbnail)
   const [activeMenu, setActiveMenu] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameTitle, setRenameTitle] = useState(session.title)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setRenameTitle(session.title)
+  }, [session.title])
 
   useEffect(() => {
     if (!session.previewThumbnail) {
@@ -74,6 +82,15 @@ export function ProjectCard({ session, onSelect, onDelete }: ProjectCardProps) {
     }
   }
 
+  const handleSaveRename = (e?: React.FormEvent | React.MouseEvent) => {
+    e?.stopPropagation()
+    const trimmed = renameTitle.trim()
+    if (trimmed && trimmed !== session.title && onRename) {
+      onRename(session.id, trimmed)
+    }
+    setIsRenaming(false)
+  }
+
   return (
     <div
       onClick={handleClick}
@@ -118,9 +135,42 @@ export function ProjectCard({ session, onSelect, onDelete }: ProjectCardProps) {
       {/* Info Body */}
       <div className="p-4 flex flex-col justify-between flex-1 min-h-0">
         <div className="flex items-start justify-between mb-1 relative">
-          <h3 className="font-semibold text-sm text-foreground truncate pr-2 flex-1 group-hover:text-primary transition-colors" title={session.title}>
-            {session.title}
-          </h3>
+          {isRenaming ? (
+            <div className="flex items-center gap-1 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>
+              <input
+                ref={renameInputRef}
+                type="text"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveRename()
+                  if (e.key === 'Escape') setIsRenaming(false)
+                }}
+                className="w-full text-xs font-medium px-2 py-0.5 rounded border border-primary bg-background focus:outline-none text-foreground"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={handleSaveRename}
+                className="p-1 text-primary hover:bg-muted rounded"
+                title="Simpan"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsRenaming(false)}
+                className="p-1 text-muted-foreground hover:bg-muted rounded"
+                title="Batal"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <h3 className="font-semibold text-sm text-foreground truncate pr-2 flex-1 group-hover:text-primary transition-colors" title={session.title}>
+              {session.title}
+            </h3>
+          )}
 
           {/* Dropdown Trigger */}
           <div className="relative">
@@ -150,6 +200,18 @@ export function ProjectCard({ session, onSelect, onDelete }: ProjectCardProps) {
                     onClick={handleClick}
                   >
                     <Globe className="w-3.5 h-3.5 text-muted-foreground" /> Buka
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-muted flex items-center gap-2"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setActiveMenu(false)
+                      setIsRenaming(true)
+                      setRenameTitle(session.title)
+                    }}
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-muted-foreground" /> Ganti Nama
                   </button>
                   <div className="h-px bg-border my-1" />
                   <button

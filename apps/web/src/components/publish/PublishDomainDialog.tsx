@@ -14,6 +14,7 @@ interface PublishDomainDialogProps {
   businessName?: string
   initialSlug?: string | null
   existingPublication?: { publicUrl: string; slug?: string | null } | null
+  usedSlugs?: string[]
 }
 
 export function PublishDomainDialog({
@@ -24,6 +25,7 @@ export function PublishDomainDialog({
   businessName = '',
   initialSlug,
   existingPublication,
+  usedSlugs = [],
 }: PublishDomainDialogProps) {
   const [domainName, setDomainName] = useState('')
   const [error, setError] = useState('')
@@ -54,12 +56,22 @@ export function PublishDomainDialog({
     prevOpenRef.current = isOpen
   }, [isOpen, initialSlug, existingPublication])
 
-  // Generate suggested domain name from business name
-  const suggestedName = businessName
+  // Generate suggested domain name from business name or project title
+  const rawSuggested = businessName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 30) || 'website'
+
+  // Ensure suggested name is unique and not already used by another project
+  let suggestedName = rawSuggested
+  if (usedSlugs && usedSlugs.length > 0) {
+    let suffix = 2
+    const lowerUsed = usedSlugs.map((s) => s.toLowerCase())
+    while (lowerUsed.includes(suggestedName.toLowerCase())) {
+      suggestedName = `${rawSuggested}-${suffix++}`
+    }
+  }
 
   // Validate domain name
   const validateDomainName = (name: string): boolean => {
@@ -92,6 +104,12 @@ export function PublishDomainDialog({
       return false
     }
 
+    // Check collision against other existing projects
+    if (usedSlugs && usedSlugs.map((s) => s.toLowerCase()).includes(name.toLowerCase())) {
+      setError('Nama domain ini sudah digunakan oleh proyek lain. Silakan pilih nama domain yang berbeda.')
+      return false
+    }
+
     setError('')
     return true
   }
@@ -100,7 +118,11 @@ export function PublishDomainDialog({
     // Convert to lowercase and remove invalid chars
     const cleaned = value.toLowerCase().replace(/[^a-z0-9-]/g, '')
     setDomainName(cleaned)
-    setError('')
+    if (usedSlugs && usedSlugs.map((s) => s.toLowerCase()).includes(cleaned)) {
+      setError('Nama domain ini sudah digunakan oleh proyek lain. Silakan pilih nama yang berbeda.')
+    } else {
+      setError('')
+    }
   }
 
   const handleConfirm = () => {
@@ -281,7 +303,7 @@ export function PublishDomainDialog({
           <Button
             type="button"
             onClick={handleConfirm}
-            disabled={isPublishing || (!existingPublication && !domainName.trim())}
+            disabled={isPublishing || (!existingPublication && !domainName.trim()) || Boolean(error)}
           >
             {isPublishing ? 'Mendeploy...' : existingPublication ? 'Deploy Perubahan' : 'Publish Website'}
           </Button>

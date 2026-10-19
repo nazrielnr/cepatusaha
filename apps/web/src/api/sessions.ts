@@ -130,3 +130,31 @@ export async function deleteSession(sessionId: string, token?: string): Promise<
   )
   await handleAPIResponse<{ success: boolean }>(response)
 }
+
+export interface GenerateTitleParams {
+  sessionId?: string
+  stage: 'initial' | 'completion'
+  prompt?: string
+  files?: Array<{ file_path: string; content?: string }>
+}
+
+export interface GenerateTitleResponse {
+  status: 'success' | 'skipped' | 'error'
+  title: string
+  stage?: 'initial' | 'completion'
+  reason?: string
+}
+
+export async function generateSessionTitle(payload: GenerateTitleParams, token?: string): Promise<GenerateTitleResponse> {
+  const sessionToken = ensureToken(token)
+  const url = apiPathUrl('/sessions/generate-title')
+  const response = await fetchWithTokenRetry(
+    url,
+    {
+      method: 'POST',
+      headers: buildFunctionHeaders(sessionToken),
+      body: JSON.stringify(payload),
+    }
+  )
+  return await handleAPIResponse<GenerateTitleResponse>(response)
+}

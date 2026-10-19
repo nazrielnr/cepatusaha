@@ -2,7 +2,7 @@ import type { Bindings } from '../../bindings'
 import { createSql } from '../../db'
 import { ValidationError } from '../../shared/errors'
 import { getSessionDbUserId } from '../sessions/service'
-import { deployToVercel, resolveProjectDomain, type VercelDeployment } from './vercel'
+import { deleteVercelProject, deployToVercel, resolveProjectDomain, type VercelDeployment } from './vercel'
 
 export type PublishedPage = { path: string; content: string }
 
@@ -21,21 +21,46 @@ export async function listPublicationsForClerkUser(env: Bindings, clerkUserId: s
   `
 }
 
-// In-memory lock to prevent race conditions during concurrent deploys for the same workspace/project
+// In-memory locks to prevent race conditions during concurrent deploys for the same workspace/project or domain
 const inFlightPublishes = new Map<string, Promise<any>>()
 
 export async function publishSiteForClerkUser(env: Bindings, clerkUserId: string, body: Record<string, unknown>) {
   const userId = await getSessionDbUserId(env, clerkUserId)
   const sessionId = str(body.sessionId) ?? null
-  const lockKey = `${userId}:${sessionId || str(body.projectId) || 'default'}`
+  const slug = slugify(str(body.slug) || 'site')
+  const sql = createSql(env)
 
-  if (inFlightPublishes.has(lockKey)) {
-    return await inFlightPublishes.get(lockKey)!
+  // 1. Resolve project_id and ensure workspace linking
+  let projectId = str(body.projectId) ?? null
+  if (!projectId && sessionId) {
+    const projectRows = await sql`select project_id from sessions where id = ${sessionId} and user_id = ${userId} limit 1`
+    projectId = projectRows[0]?.project_id ?? null
+  }
+  if (!projectId) {
+    const rows = await sql`
+      insert into projects (user_id, title, description)
+      values (${userId}, ${slug}, null)
+      returning id
+    `
+    projectId = rows[0].id
+    if (sessionId) {
+      await sql`update sessions set project_id = ${projectId} where id = ${sessionId} and user_id = ${userId}`
+    }
+  }
+
+  // 2. Race condition guards: Dual locking on project and domain slug
+  const projectLockKey = `project:${projectId}`
+  const slugLockKey = `slug:${slug.toLowerCase()}`
+
+  if (inFlightPublishes.has(slugLockKey)) {
+    throw new ValidationError(`Penerbitan domain "${slug}" sedang diproses. Harap tunggu beberapa saat.`)
+  }
+
+  if (inFlightPublishes.has(projectLockKey)) {
+    return await inFlightPublishes.get(projectLockKey)!
   }
 
   const publishPromise = (async () => {
-    const sql = createSql(env)
-    const slug = slugify(str(body.slug) || 'site')
     const pages = publishablePages(body.pages)
     if (!pages.length) throw new ValidationError('pages wajib diisi (minimal satu halaman HTML)')
     const contentHash = await sha1Hex(JSON.stringify(pages))
@@ -44,22 +69,38 @@ export async function publishSiteForClerkUser(env: Bindings, clerkUserId: string
       throw new ValidationError('VERCEL_TOKEN tidak dikonfigurasi. Direct worker hosting dinonaktifkan.')
     }
 
-    // Resolve project_id and workspace identifier
-    let projectId = str(body.projectId) ?? null
-    if (!projectId && sessionId) {
-      const projectRows = await sql`select project_id from sessions where id = ${sessionId} and user_id = ${userId} limit 1`
-      projectId = projectRows[0]?.project_id ?? null
-    }
-    if (!projectId) {
-      const rows = await sql`
-        insert into projects (user_id, title, description)
-        values (${userId}, ${slug}, null)
-        returning id
-      `
-      projectId = rows[0].id
+    // 3. Cross-Project Isolation Check:
+    // Strictly verify that the requested slug/domain is NOT already owned by ANOTHER project.
+    // This prevents a new project from overwriting an older project's deployment.
+    const conflictingRows = await sql`
+      select p.id,
+             p.project_id,
+             p.published_url,
+             p.metadata->>'slug' as slug,
+             pr.title as project_title,
+             pr.user_id as owner_id
+      from publications p
+      join projects pr on pr.id = p.project_id
+      where (
+        lower(p.metadata->>'slug') = lower(${slug})
+        or lower(p.metadata->>'vercelProjectName') = lower(${slug})
+        or lower(p.published_url) = lower(${`https://${slug}.vercel.app`})
+      )
+      and p.project_id != ${projectId}
+      limit 1
+    `
+
+    if (conflictingRows.length > 0) {
+      const conflict = conflictingRows[0]
+      const isSameUser = conflict.owner_id === userId
+      const projName = conflict.project_title || 'proyek lain'
+      const msg = isSameUser
+        ? `Nama domain "${slug}" sudah digunakan oleh proyek "${projName}". Setiap proyek harus menggunakan nama domain yang berbeda.`
+        : `Nama domain "${slug}" sudah digunakan oleh proyek lain. Silakan pilih nama domain yang berbeda.`
+      throw new ValidationError(msg)
     }
 
-    // Resolve project and existing publication from database
+    // 4. Resolve existing publication for THIS project
     const existingRows = await sql`
       select p.id,
              p.published_url,
@@ -81,7 +122,7 @@ export async function publishSiteForClerkUser(env: Bindings, clerkUserId: string
     // Use established Vercel project name or slug
     const vercelProjectName = existing?.vercel_project_name || slug
 
-    // Deploy latest files to Vercel (target: production updates the project)
+    // 5. Deploy latest files to Vercel (target: production updates the project)
     const vercel = await deployToVercel(env, vercelProjectName, pages, {
       existingProjectId: existing?.vercel_project_id || null,
       slug,
@@ -157,17 +198,38 @@ export async function publishSiteForClerkUser(env: Bindings, clerkUserId: string
     }
   })()
 
-  inFlightPublishes.set(lockKey, publishPromise)
+  inFlightPublishes.set(projectLockKey, publishPromise)
+  inFlightPublishes.set(slugLockKey, publishPromise)
   try {
     return await publishPromise
   } finally {
-    inFlightPublishes.delete(lockKey)
+    inFlightPublishes.delete(projectLockKey)
+    inFlightPublishes.delete(slugLockKey)
   }
 }
 
 export async function deletePublicationForClerkUser(env: Bindings, clerkUserId: string, publicationId: string) {
+  const sql = createSql(env)
   const userId = await getSessionDbUserId(env, clerkUserId)
-  await createSql(env)`
+
+  // Clean up remote Vercel project if possible
+  const rows = await sql`
+    select p.id, p.metadata->>'vercelProjectId' as vercel_project_id
+    from publications p
+    join projects pr on pr.id = p.project_id
+    where pr.user_id = ${userId} and p.id = ${publicationId}
+    limit 1
+  `
+  const pub = rows[0]
+  if (pub?.vercel_project_id && env.VERCEL_TOKEN) {
+    try {
+      await deleteVercelProject(env, pub.vercel_project_id)
+    } catch (err) {
+      console.warn('[Publications] Failed to delete project on Vercel:', err)
+    }
+  }
+
+  await sql`
     delete from publications p
     using projects pr
     where p.project_id = pr.id and pr.user_id = ${userId} and p.id = ${publicationId}

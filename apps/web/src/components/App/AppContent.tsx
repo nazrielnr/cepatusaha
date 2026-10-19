@@ -7,11 +7,9 @@ import { useChatState } from '@/hooks/useChatState'
 import { usePreviewState } from '@/hooks/usePreviewState'
 import { AppRoutes } from './AppRoutes'
 import { PublishDomainDialog } from '@/components/publish/PublishDomainDialog'
-import { updateSession } from '@/api/sessions'
 import { getProjectFiles } from '@/api/files'
 import type { ChatMessage } from '@/types/chat'
 import { AppOverlays } from './AppOverlays'
-import { deriveProjectTitle } from './appContentUtils'
 import { publishSite } from '@/api/publications'
 import type { PublishResponse } from '@/types/publication'
 import { useAppWorkspaceProps } from './useAppWorkspaceProps'
@@ -41,6 +39,18 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+function dataUrlToFile(dataUrl: string, filename: string, mimeType: string): File {
+  const parts = dataUrl.split(',')
+  const mime = parts[0]?.match(/:(.*?);/)?.[1] || mimeType || 'image/png'
+  const bstr = atob(parts[1] || '')
+  let n = bstr.length
+  const u8arr = new Uint8Array(n)
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n)
+  }
+  return new File([u8arr], filename, { type: mime })
+}
+
 async function persistPendingSubmit(pending: PendingSubmit) {
   const images = pending.images?.length
     ? await Promise.all(
@@ -51,7 +61,11 @@ async function persistPendingSubmit(pending: PendingSubmit) {
         })),
       )
     : undefined
-  sessionStorage.setItem(PENDING_SUBMIT_KEY, JSON.stringify({ message: pending.message, modelId: pending.modelId, planMode: pending.planMode, images }))
+  try {
+    sessionStorage.setItem(PENDING_SUBMIT_KEY, JSON.stringify({ message: pending.message, modelId: pending.modelId, planMode: pending.planMode, images }))
+  } catch (e) {
+    console.warn('[AppContent] sessionStorage quota exceeded for pending images:', e)
+  }
 }
 
 async function readPendingSubmit(): Promise<PendingSubmit | null> {
@@ -59,14 +73,9 @@ async function readPendingSubmit(): Promise<PendingSubmit | null> {
     const raw = sessionStorage.getItem(PENDING_SUBMIT_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    // NOTE: intentionally do NOT consume the key here. It is only removed once
-    // the submitted prompt actually landed in the chat (see pendingInitial)
-    // so a failed/stalled submit can retry instead of silently losing it.
     const images = Array.isArray(parsed.images)
-      ? await Promise.all(
-          parsed.images.map(async (img: { name: string; type: string; dataUrl: string }) =>
-            new File([await (await fetch(img.dataUrl)).blob()], img.name, { type: img.type }),
-          ),
+      ? parsed.images.map((img: { name: string; type: string; dataUrl: string }) =>
+          dataUrlToFile(img.dataUrl, img.name, img.type),
         )
       : undefined
     return { message: parsed.message, modelId: parsed.modelId, planMode: parsed.planMode, images }
@@ -117,46 +126,9 @@ export function AppContent() {
   const chatMessagesRef = useRef<ChatMessage[]>([])
   const lastHydratedSessionIdRef = useRef<string | null>(null)
   const lastPreviewSessionIdRef = useRef<string | null>(null)
-  const autoTitledSessionsRef = useRef<Set<string>>(new Set()) // Track sessions that already got auto-titled
-
-  // Auto-update session title once per session when it's still default
-  const handleAutoTitle = useCallback(async (files: any[], sessionIdOverride?: string) => {
-    const sessionId = sessionIdOverride || appState.activeSessionId || appState.currentSession?.id || ''
-
-    // Skip if already auto-titled this session
-    if (autoTitledSessionsRef.current.has(sessionId)) {
-      return
-    }
-
-    const currentTitle = appState.currentSession?.title || ''
-    const isDefaultTitle = !currentTitle || ['proyek baru', 'new project', 'new session'].includes(currentTitle.toLowerCase())
-    if (!sessionId || !isDefaultTitle) {
-      return
-    }
-
-    const suggestion = deriveProjectTitle(files, chatMessagesRef.current)
-    if (!suggestion) {
-      return
-    }
-
-    // Mark as titled BEFORE async operation to prevent race conditions
-    autoTitledSessionsRef.current.add(sessionId)
-
-    try {
-      appState.updateSessionTitle(sessionId, suggestion)
-      const token = await requireToken()
-      await updateSession(sessionId, { title: suggestion }, token)
-    } catch (error) {
-      // Remove from set if failed so it can retry
-      autoTitledSessionsRef.current.delete(sessionId)
-      console.error('[AppContent] Failed to auto-update session title:', error)
-    }
-  }, [appState, requireToken])
-
-  const handlePreviewRefresh = useCallback((files: any[], sessionIdFromHook?: string) => {
+  const handlePreviewRefresh = useCallback((files: any[], _sessionId?: string) => {
     previewState.updatePreviewFromFiles(files)
-    void handleAutoTitle(files, sessionIdFromHook)
-  }, [previewState, handleAutoTitle])
+  }, [previewState])
 
   const chatState = useChatState({
     requireToken,
@@ -165,6 +137,7 @@ export function AppContent() {
     onSessionCreated: handleSessionCreated,
     onPreviewRefresh: handlePreviewRefresh,
     projectId: appState.currentSession?.project_id,
+    onSessionTitleUpdate: appState.updateSessionTitle,
   })
 
   const { resetPreviewState } = previewState
@@ -173,6 +146,7 @@ export function AppContent() {
   // Initial prompt typed on the landing page, carried across the full page
   // reload that happens when the session is created.
   const [pendingInitial, setPendingInitial] = useState<PendingSubmit | null>(null)
+  const pendingSubmittedRef = useRef(false)
 
   // Read the persisted prompt once the session becomes available (no consume).
   useEffect(() => {
@@ -186,13 +160,17 @@ export function AppContent() {
   useEffect(() => {
     if (!pendingInitial || !appState.activeSessionId) return
 
-    if (chatState.messages.length > 0) {
+    if (chatState.messages.length > 0 && pendingSubmittedRef.current) {
       sessionStorage.removeItem(PENDING_SUBMIT_KEY)
       setPendingInitial(null)
+      pendingSubmittedRef.current = false
       return
     }
 
+    if (pendingSubmittedRef.current) return
+
     const timer = setTimeout(() => {
+      pendingSubmittedRef.current = true
       void handleUserSubmit(pendingInitial.message, 'chat', pendingInitial.modelId, pendingInitial.planMode, pendingInitial.images || [])
     }, 150)
     return () => clearTimeout(timer)
@@ -374,10 +352,13 @@ export function AppContent() {
             console.error('[AppContent] Failed to persist pending submit:', error)
           }
           const session = await appState.createSession()
+          // The initial title is generated by useChatState when the pending prompt is submitted
+          // (after the reload); firing it here too would double the AI call.
           handleSessionCreated(session.id)
         }}
         onSelectSession={handleSelectSession}
         onDeleteSession={appState.handleDeleteSession}
+        onRenameSession={appState.renameSession}
         onRefreshSessions={handleRefreshSessions}
         workspaceProps={workspaceProps}
         onPageError={handlePageError}
@@ -397,15 +378,20 @@ export function AppContent() {
           slug: appState.currentSession.deployment.slug,
         } : null)
 
+        const usedSlugs = (appState.publications || [])
+          .filter((p) => p.slug && (!currentProjectId || p.projectId !== currentProjectId))
+          .map((p) => p.slug!.toLowerCase())
+
         return (
           <PublishDomainDialog
             isOpen={showPublishDialog}
             onClose={() => setShowPublishDialog(false)}
             onConfirm={handlePublishWithDomain}
             isPublishing={appState.isPublishing}
-            businessName={appState.profileDraft.businessName}
+            businessName={appState.currentSession?.title || appState.profileDraft.businessName || ''}
             initialSlug={existingPublication?.slug || appState.publications?.find((p) => p.sessionId === appState.currentSession?.id)?.slug || null}
             existingPublication={existingPublication}
+            usedSlugs={usedSlugs}
           />
         )
       })()}

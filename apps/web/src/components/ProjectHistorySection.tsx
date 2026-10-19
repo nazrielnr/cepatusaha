@@ -12,6 +12,7 @@ interface ProjectHistorySectionProps {
   }>
   onSelectSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onRenameSession?: (sessionId: string, newTitle: string) => void
   onRefresh?: () => Promise<void>
 }
 
@@ -19,6 +20,7 @@ export function ProjectHistorySection({
   sessions,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   isLoading = false,
 }: ProjectHistorySectionProps & { isLoading?: boolean }) {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
@@ -101,6 +103,7 @@ export function ProjectHistorySection({
                 session={session}
                 onSelect={onSelectSession}
                 onDelete={onDeleteSession}
+                onRename={onRenameSession}
               />
             ))}
           </div>

@@ -446,6 +446,8 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
     }
   }, [requireToken, setSessionsSafe])
 
+  const customTitledSessionsRef = useRef<Set<string>>(new Set())
+
   const updateSessionTitle = useCallback((sessionId: string, newTitle: string) => {
     // Update sessions list
     setSessionsSafe((prev) => {
@@ -465,6 +467,24 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
     }
   }, [setSessionsSafe, setCurrentSessionSafe])
 
+  const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+    const cleanTitle = newTitle.trim()
+    if (!sessionId || !cleanTitle) return
+
+    // Immediately mark as custom-titled to prevent any background AI overwrites
+    customTitledSessionsRef.current.add(sessionId)
+
+    // Update UI immediately (optimistic)
+    updateSessionTitle(sessionId, cleanTitle)
+
+    try {
+      const token = await requireToken()
+      await updateSessionApi(sessionId, { title: cleanTitle, customTitle: true }, token)
+    } catch (error) {
+      console.error('[SessionManagement] Failed to rename session on server:', error)
+    }
+  }, [requireToken, updateSessionTitle])
+
   const clearActiveSession = useCallback(() => {
     setCurrentSessionSafe(null)
     setActiveSessionId('')
@@ -483,8 +503,9 @@ export function useSessionManagement({ defaultProfile, requireToken, enabled }: 
     resetSessions,
     refreshSessions,
     updateSessionTitle,
+    renameSession,
     clearActiveSession,
-  }), [activeSessionId, clearActiveSession, createSession, currentSessionState, deleteSession, initialized, isSessionLoading, refreshSessions, resetSessions, selectSession, sessionsState, updateCurrentSession, updateSessionTitle])
+  }), [activeSessionId, clearActiveSession, createSession, currentSessionState, deleteSession, initialized, isSessionLoading, refreshSessions, renameSession, resetSessions, selectSession, sessionsState, updateCurrentSession, updateSessionTitle])
 
   return value
 }

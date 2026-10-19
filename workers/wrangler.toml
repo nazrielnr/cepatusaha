@@ -84,3 +84,10 @@ new_sqlite_classes = ["RealtimeRoom"]
 #   wrangler secret put AI_BASE_URL --env <environment>
 #   wrangler secret put AI_API_KEY --env <environment>
 #   wrangler secret put AI_DEFAULT_MODEL --env <environment>
+
+# Cloudflare Workers Limits:
+# Free plan: Maksimal 50 subrequests per invocation (hard limit, tidak bisa dinaikkan di Free tier).
+# Workers Paid ($5/bulan): Maksimal 1000 subrequests per invocation.
+# Uncomment jika sudah upgrade ke Cloudflare Workers Paid:
+# [limits]
+# subrequests = 1000

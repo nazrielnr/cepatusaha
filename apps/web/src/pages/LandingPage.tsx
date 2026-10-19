@@ -18,6 +18,7 @@ interface LandingPageProps {
   onCreateSession: (message: string, modelId?: string, planMode?: boolean, images?: File[]) => Promise<void>
   onSelectSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
+  onRenameSession?: (sessionId: string, newTitle: string) => void
   onRefreshSessions?: () => Promise<void>
 }
 
@@ -27,6 +28,7 @@ export function LandingPage({
   onCreateSession,
   onSelectSession,
   onDeleteSession,
+  onRenameSession,
   onRefreshSessions,
 }: LandingPageProps) {
   const [isGenerating, setIsGenerating] = React.useState(false)
@@ -110,6 +112,7 @@ export function LandingPage({
                   sessions={sessions}
                   onSelectSession={onSelectSession}
                   onDeleteSession={onDeleteSession}
+                  onRenameSession={onRenameSession}
                   onRefresh={onRefreshSessions}
                   isLoading={isSessionLoading}
                 />

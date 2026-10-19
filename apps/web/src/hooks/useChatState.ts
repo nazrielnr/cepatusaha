@@ -3,7 +3,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import type { ChatMessage, ChatMode, ChatConversationMessage } from '@/types/chat'
 import { sendChatMessageStream, stopChatStream } from '../api/chat'
 import { uploadChatImage } from '../api/assets'
-import { fetchSessionDetail } from '../api/sessions'
+import { fetchSessionDetail, generateSessionTitle } from '../api/sessions'
 import { useChatStreamCallbacks } from './useChatStreamCallbacks'
 import { APIError } from '../utils/error-handler'
 
@@ -26,9 +26,11 @@ interface UseChatStateOptions {
   onPreviewRefresh?: (files: any[], sessionId?: string) => void
   projectId?: string
   onCheckpointCreate?: (options?: CreateCheckpointOptions) => Promise<void>
+  onSessionTitleUpdate?: (sessionId: string, newTitle: string) => void
+  customTitledSessionsRef?: React.MutableRefObject<Set<string>>
 }
 
-export function useChatState({ requireToken, currentSessionId, onSessionCreate, onSessionCreated, onPreviewRefresh, projectId }: UseChatStateOptions) {
+export function useChatState({ requireToken, currentSessionId, onSessionCreate, onSessionCreated, onPreviewRefresh, projectId, onSessionTitleUpdate, customTitledSessionsRef }: UseChatStateOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
@@ -77,15 +79,35 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
         .slice(-MAX_HISTORY_MESSAGES)
         .filter((message) => {
           const content = message.content
-          const hasToolCalls = 'metadata' in message && message.metadata?.tool_calls && (message.metadata.tool_calls as any[]).length > 0
+          // Live iteration bubbles carry tool_calls on the message itself; DB-loaded
+          // ones carry them in metadata. Both mean "the AI did something here" and
+          // must survive into the context — dropping them is why a re-prompt after
+          // a stop made the AI forget what it had already built.
+          const metaToolCalls = 'metadata' in message && message.metadata?.tool_calls && (message.metadata.tool_calls as any[]).length > 0
+          const hasToolCalls = metaToolCalls || (Array.isArray(message.tool_calls) && message.tool_calls.length > 0)
           return content.length > 0 || hasToolCalls
         })
         .map((message) => {
           let content = message.content.slice(0, 5000)
 
-          if (!content && 'metadata' in message && message.metadata?.tool_calls) {
-            const toolNames = (message.metadata.tool_calls as any[]).map((tc: any) => tc.function.name).join(', ')
-            content = `[Executed: ${toolNames}]`
+          if (!content) {
+            // Prefer metadata.tool_calls (richer, from DB); fall back to the live
+            // message.tool_calls written by the streaming callbacks.
+            const source = ('metadata' in message && message.metadata?.tool_calls && (message.metadata.tool_calls as any[]).length ? message.metadata.tool_calls : message.tool_calls) as any[] | undefined
+            if (source?.length) {
+              const parts = source.map((tc: any) => {
+                const name = tc.function?.name || tc.name || 'tool'
+                const rawArgs = tc.function?.arguments
+                let filePath = ''
+                if (typeof rawArgs === 'string' && rawArgs.length <= 2048) {
+                  try { filePath = JSON.parse(rawArgs).path || JSON.parse(rawArgs).file_path || '' } catch {}
+                } else if (rawArgs && typeof rawArgs === 'object') {
+                  filePath = rawArgs.path || rawArgs.file_path || ''
+                }
+                return filePath ? `${name}(${filePath})` : name
+              })
+              content = `[Executed: ${parts.join(', ')}]`
+            }
           }
 
           return {
@@ -158,6 +180,10 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
     return Array.from(bestByIteration.values()).sort((a, b) => ((a.metadata as any)?.iteration || 0) - ((b.metadata as any)?.iteration || 0))
   }, [])
 
+  const internalCustomTitledRef = useRef<Set<string>>(new Set())
+  const effectiveCustomTitledRef = customTitledSessionsRef || internalCustomTitledRef
+  const sessionTitleStageRef = useRef<Map<string, 'initial' | 'completion'>>(new Map())
+
   const buildStreamCallbacks = useChatStreamCallbacks({
     currentSessionId,
     projectId,
@@ -176,6 +202,9 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
     createId,
     deriveIterationsFromMessages,
     fallbackMessage: AI_FALLBACK_MESSAGE,
+    onSessionTitleUpdate,
+    sessionTitleStageRef,
+    customTitledSessionsRef: effectiveCustomTitledRef,
   })
 
   // Handle user message submission
@@ -250,6 +279,30 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
         return [...prev, userMessage]
       })
 
+      // State 1: Generate title from user's very first prompt
+      const isFirstUserPrompt = messagesRef.current.filter((m) => m.sender === 'user').length === 0
+      if (isFirstUserPrompt && trimmed && sessionId && !effectiveCustomTitledRef.current.has(sessionId)) {
+        if (sessionTitleStageRef.current.get(sessionId) !== 'completion') {
+          sessionTitleStageRef.current.set(sessionId, 'initial')
+          void requireToken().then(async (token) => {
+            const res = await generateSessionTitle({
+              sessionId,
+              stage: 'initial',
+              prompt: trimmed,
+            }, token)
+
+            if (
+              res?.title &&
+              res.status === 'success' &&
+              !effectiveCustomTitledRef.current.has(sessionId) &&
+              sessionTitleStageRef.current.get(sessionId) !== 'completion'
+            ) {
+              onSessionTitleUpdate?.(sessionId, res.title)
+            }
+          }).catch((err) => console.error('[useChatState] State 1 title generation failed:', err))
+        }
+      }
+
       // Create placeholder AI message immediately for thinking/streaming
       const aiMessageId = createId()
       const placeholderAiMessage: ChatMessage = {
@@ -297,6 +350,13 @@ export function useChatState({ requireToken, currentSessionId, onSessionCreate, 
           setMessages((prev) => prev.map((msg) => msg.id === currentAiMessageIdRef.current ? { ...msg, content: '', tool_calls: [], metadata: { mode, error: true, error_code: code } } : msg))
           return
         }
+
+        // Transport failure mid-read: also unstick the "Thinking..." bubble of this turn.
+        setMessages((prev) => prev.map((msg, i) => i < turnStartIndexRef.current || msg.sender !== 'ai' ? msg : {
+          ...msg,
+          tool_calls: msg.tool_calls?.map((tc: any) => tc.status === 'pending' ? { ...tc, status: 'error', error: 'Interrupted' } : tc),
+          metadata: { ...(msg.metadata || {}), is_thinking: false, reasoning_done: true, phase: 'complete', turn_done: true },
+        }))
 
         // Show error message
         const errorMessage: ChatMessage = {

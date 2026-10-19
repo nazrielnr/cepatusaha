@@ -13,6 +13,28 @@ import {
 export { deduplicateMessages, mapMessagePayload } from './sessionMessageMappers'
 export { normalizeConversationStep, normalizeLayoutBlueprint, normalizeModeHistory, normalizeProfileDraft, normalizeStatus } from './sessionNormalizers'
 
+export function decodeHtmlEntities(str: string): string {
+  if (!str) return ''
+  let cleaned = str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .trim()
+
+  // Clean unclosed opening parenthesis e.g. "Website Kafe Kekinian (Specialty Co" -> "Website Kafe Kekinian"
+  const openParen = (cleaned.match(/\(/g) || []).length
+  const closeParen = (cleaned.match(/\)/g) || []).length
+  if (openParen > closeParen) {
+    const lastOpen = cleaned.lastIndexOf('(')
+    cleaned = cleaned.slice(0, lastOpen).trimEnd()
+  }
+
+  return cleaned
+}
+
 /**
  * Map session data from backend format to frontend format
  * Requirement 8.1: Backend returns session data in consistent structure with metadata at root
@@ -21,7 +43,7 @@ export { normalizeConversationStep, normalizeLayoutBlueprint, normalizeModeHisto
 export function mapSessionFromBackend(backendSession: SessionPayload, messages: MessagePayload[] = []): SessionData {
   return {
     id: backendSession.id,
-    title: backendSession.title || 'Proyek Baru',
+    title: decodeHtmlEntities(backendSession.title || 'Proyek Baru'),
     project_id: (backendSession as any).project_id ?? null,
     status: normalizeStatus(backendSession.status),
     conversationStep: normalizeConversationStep(backendSession.conversation_step),
@@ -84,11 +106,20 @@ export function mapSessionFromBackend(backendSession: SessionPayload, messages: 
  * Requirement 8.2: Frontend sends session updates in structure backend expects
  * Requirement 8.3: Use explicit mapping functions for session data
  */
-export function mapSessionToBackend(session: Partial<SessionData>): Record<string, unknown> {
+export function mapSessionToBackend(session: Partial<SessionData> & Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {}
 
   if (session.title !== undefined) {
     body.title = session.title
+  }
+  if (session.customTitle !== undefined) {
+    body.customTitle = session.customTitle
+  }
+  if (session.isCustomTitle !== undefined) {
+    body.isCustomTitle = session.isCustomTitle
+  }
+  if (session.metadata !== undefined) {
+    body.metadata = session.metadata
   }
   if (session.project_id !== undefined) {
     body.project_id = session.project_id
@@ -120,7 +151,7 @@ export function mapSessionToBackend(session: Partial<SessionData>): Record<strin
 export function mapSessionSummary(payload: SessionPayload): SessionSummary {
   return {
     id: payload.id,
-    title: payload.title || 'Proyek Baru',
+    title: decodeHtmlEntities(payload.title || 'Proyek Baru'),
     createdAt: payload.created_at,
     updatedAt: payload.updated_at,
     status: normalizeStatus(payload.status),
