@@ -44,7 +44,7 @@ export async function chatHandlerStream(c: HonoContext) {
     conversation = validated.conversation;
     context = validated.context;
     sessionId = validated.sessionId;
-    reasoningEffort = validated.reasoning_effort;
+    reasoningEffort = validated.reasoning_effort ?? 'low';
     requestedModel = validated.model;
     runId = validated.runId;
     

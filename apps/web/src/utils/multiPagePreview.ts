@@ -172,17 +172,34 @@ function transformEnvImports(js: string): string {
 }
 
 function inlineLinkedJs(html: string, htmlPath: string, jsByPath: Map<string, string>): string {
-  return html.replace(/<script\b[^>]*\bsrc\s*=\s*(["']).*?\1[^>]*>\s*<\/script>/gis, (tag) => {
+  // Classic `defer` scripts run after the document is parsed, in order, right before
+  // DOMContentLoaded. We emulate that by moving the inlined copy to the end of <body>.
+  // Do NOT wrap them in a window 'DOMContentLoaded' listener: the script's own
+  // document.addEventListener('DOMContentLoaded', init) would then register after the
+  // event already passed the document (so init never runs and the page stays empty), and
+  // its top-level declarations would be hidden from other inline scripts.
+  const deferred: string[] = []
+  const withScripts = html.replace(/<script\b[^>]*\bsrc\s*=\s*(["']).*?\1[^>]*>\s*<\/script>/gis, (tag) => {
     const src = getAttr(tag, 'src')
     const content = src ? jsByPath.get(resolveFilePath(htmlPath, src)) : undefined
+    if (content === undefined) return tag
     const type = getAttr(tag, 'type')
-    const js = transformEnvImports(content ?? '')
+    const body = transformEnvImports(content)
     const isModule = type.toLowerCase() === 'module'
-    const needsDomReady = !isModule && /\bdefer\b/i.test(tag)
-    const body = needsDomReady ? `window.addEventListener('DOMContentLoaded', function() {\n${js}\n});` : js
     // ponytail: general ESM import graph not bundled; preview HTTP server is the upgrade path
-    return content ? `<script${type ? ` type="${type}"` : ''} data-injected="true" data-source="${src}">\n${body}\n</script>` : tag
+    const script = `<script${type ? ` type="${type}"` : ''} data-injected="true" data-source="${src}">\n${body}\n</script>`
+    if (!isModule && /\bdefer\b/i.test(tag)) {
+      deferred.push(script)
+      return ''
+    }
+    return script
   })
+  if (!deferred.length) return withScripts
+  const block = deferred.join('\n')
+  const bodyClose = withScripts.toLowerCase().lastIndexOf('</body>')
+  return bodyClose === -1
+    ? `${withScripts}\n${block}`
+    : `${withScripts.slice(0, bodyClose)}${block}\n${withScripts.slice(bodyClose)}`
 }
 
 function combineHtmlWithAssets(

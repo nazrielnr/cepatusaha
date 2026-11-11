@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 
 function resolveFilePath(currentPath, targetHref) {
   let target = targetHref.split('?')[0].split('#')[0].trim()
@@ -52,18 +52,28 @@ function transformEnvImports(js) {
     .replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+['"][^'"]*env\.js['"];?\s*$/gm, (_match, name) => `const ${name} = ${envExpr}`)
 }
 function inlineLinkedJs(html, htmlPath, jsByPath) {
-  return html.replace(/<script\b[^>]*\bsrc\s*=\s*(["']).*?\1[^>]*>\s*<\/script>/gis, (tag) => {
+  const deferred = []
+  const withScripts = html.replace(/<script\b[^>]*\bsrc\s*=\s*(["']).*?\1[^>]*>\s*<\/script>/gis, (tag) => {
     const src = getAttr(tag, 'src')
     const content = src ? jsByPath.get(resolveFilePath(htmlPath, src)) : undefined
+    if (content === undefined) return tag
     const type = getAttr(tag, 'type')
-    const js = transformEnvImports(content ?? '')
+    const body = transformEnvImports(content)
     const isModule = type.toLowerCase() === 'module'
-    const needsDomReady = !isModule && /\bdefer\b/i.test(tag)
-    const body = needsDomReady ? `window.addEventListener('DOMContentLoaded', function() {\n${js}\n});` : js
-    return content ? `<script${type ? ` type="${type}"` : ''} data-injected="true" data-source="${src}">\n${body}\n</script>` : tag
+    const script = `<script${type ? ` type="${type}"` : ''} data-injected="true" data-source="${src}">\n${body}\n</script>`
+    if (!isModule && /\bdefer\b/i.test(tag)) {
+      deferred.push(script)
+      return ''
+    }
+    return script
   })
-}
-function combineHtmlWithAssets(htmlContent, cssFiles, jsFiles, htmlPath = 'index.html') {
+  if (!deferred.length) return withScripts
+  const block = deferred.join('\n')
+  const bodyClose = withScripts.toLowerCase().lastIndexOf('</body>')
+  return bodyClose === -1
+    ? `${withScripts}\n${block}`
+    : `${withScripts.slice(0, bodyClose)}${block}\n${withScripts.slice(bodyClose)}`
+}function combineHtmlWithAssets(htmlContent, cssFiles, jsFiles, htmlPath = 'index.html') {
   return inlineLinkedJs(inlineLinkedCss(htmlContent, htmlPath, toFileMap(cssFiles)), htmlPath, toFileMap(jsFiles))
 }
 
@@ -85,9 +95,27 @@ const out = combineHtmlWithAssets(html, [
   { file_path: 'js/module.js', content: "import { env } from './env.js'\nwindow.model = env.AI_MODEL_ID" },
 ], 'pages/checkout.html')
 assert(out.includes('body{color:red}'))
-assert(out.includes("window.addEventListener('DOMContentLoaded'"))
+
 assert(out.includes("document.querySelector('form')"))
 assert(out.includes('const env = window.__ENV__'))
 assert(out.includes('type="module"'))
+
+// Regression: a deferred script that registers its own document 'DOMContentLoaded' init must stay
+// a plain script placed at the end of <body> (in order), so the init still fires and its top-level
+// declarations stay visible to later inline scripts.
+const deferHtml = '<html><head><script src="js/a.js" defer></script></head><body><p>x</p><script src="js/b.js" defer></script><script>inline()</script></body></html>'
+const deferOut = combineHtmlWithAssets(deferHtml, [], [
+  { file_path: 'js/a.js', content: 'const products = [1]' },
+  { file_path: 'js/b.js', content: "document.addEventListener('DOMContentLoaded', init)" },
+], 'index.html')
+assert(!deferOut.includes("window.addEventListener('DOMContentLoaded'"))
+assert(!deferOut.slice(0, deferOut.indexOf('<body>')).includes('data-source'), 'deferred scripts must leave <head>')
+const iA = deferOut.indexOf('data-source="js/a.js"')
+const iB = deferOut.indexOf('data-source="js/b.js"')
+assert(iA > deferOut.indexOf('<body>') && iA < iB && iB < deferOut.lastIndexOf('</body>'), 'order preserved, inside body')
+assert(deferOut.includes('const products = [1]'))
+// `$` sequences in script source must not be interpreted as replacement patterns
+const dollarOut = combineHtmlWithAssets('<body><script src="a.js" defer></script></body>', [], [{ file_path: 'a.js', content: "x = '$&' + `${y}`" }])
+assert(dollarOut.includes("x = '$&' + `${y}`"))
 
 console.log('multiPagePreview ok')

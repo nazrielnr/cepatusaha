@@ -1,4 +1,6 @@
 import { apiUrl, jsonHeaders, requireToken } from './client'
+import { joinApiUrl } from '../lib/apiClient'
+import { API_BASE_URL, CHAT_API_BASE_URL } from '../lib/env'
 import { APIError } from '../utils/error-handler'
 
 let tokenRefreshCallback: (() => Promise<string>) | null = null
@@ -36,8 +38,15 @@ export interface StreamCallbacks {
   onError?: (error: string) => void
 }
 
+// Which origin served each run, so /stop reaches the process that holds the stream.
+const runBase = new Map<string, string>()
+
+// Gateway statuses returned by a tunnel/proxy whose origin is down.
+const ORIGIN_DOWN_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530])
+
 export async function stopChatStream(sessionId: string, runId: string, token?: string): Promise<void> {
-  await fetchWithTokenRetry(apiUrl('/api/chat/stop'), {
+  const base = runBase.get(runId)
+  await fetchWithTokenRetry(base ? joinApiUrl('/api/chat/stop', base) : apiUrl('/api/chat/stop'), {
     method: 'POST',
     headers: jsonHeaders(requireToken(token)),
     body: JSON.stringify({ sessionId, runId }),
@@ -59,12 +68,25 @@ async function readErrorDetails(response: Response): Promise<{ message: string; 
 }
 
 export async function sendChatMessageStream(conversation: any[], sessionId: string | undefined, callbacks: StreamCallbacks, token?: string, modelId?: string, planMode?: boolean, signal?: AbortSignal, runId?: string, context: Record<string, unknown> = {}): Promise<void> {
-  const response = await fetchWithTokenRetry(apiUrl('/api/chat/stream'), {
+  const request: RequestInit = {
     method: 'POST',
     headers: jsonHeaders(requireToken(token)),
     body: JSON.stringify({ conversation, sessionId, context, model: modelId, planMode: planMode ?? false, runId }),
     signal,
-  })
+  }
+  // Prefer the dedicated chat origin when configured; if it is unreachable
+  // (tunnel/container down) fall back to the default API before any bytes are streamed.
+  let usedBase = CHAT_API_BASE_URL || API_BASE_URL
+  let response: Response
+  try {
+    response = await fetchWithTokenRetry(joinApiUrl('/api/chat/stream', usedBase), request)
+    if (usedBase !== API_BASE_URL && ORIGIN_DOWN_STATUSES.has(response.status)) throw new TypeError(`chat origin down (${response.status})`)
+  } catch (error) {
+    if (usedBase === API_BASE_URL || (error instanceof DOMException && error.name === 'AbortError')) throw error
+    usedBase = API_BASE_URL
+    response = await fetchWithTokenRetry(joinApiUrl('/api/chat/stream', usedBase), request)
+  }
+  if (runId) runBase.set(runId, usedBase)
   if (!response.ok) {
     const { message, code } = await readErrorDetails(response)
     throw new APIError(message, code, response.status)

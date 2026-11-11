@@ -75,3 +75,8 @@ workers/.production.secrets
 
 # Misc
 *.tsbuildinfo
+
+# Local scratch / debug artifacts (contain credentials)
+scratch/
+/tmp-*.mjs
+/tmp-*.txt

@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { PricingModal } from './PricingModal'
 import { Zap, Github, Twitter, Linkedin, Instagram, Dribbble, Globe, MessageSquare } from 'lucide-react'
 
 const FOOTER_COLUMNS = [
@@ -9,7 +10,7 @@ const FOOTER_COLUMNS = [
       { label: 'Features', href: '#' },
       { label: 'Solutions', href: '#' },
       { label: 'Tutorials', href: '#' },
-      { label: 'Pricing', href: '#' },
+      { label: 'Pricing', href: '#pricing' },
       { label: 'Releases', href: '#' },
     ],
   },
@@ -71,6 +72,7 @@ const FOOTER_COLUMNS = [
 ]
 
 export const Footer: React.FC = () => {
+  const [pricingOpen, setPricingOpen] = useState(false)
   return (
     <footer className="w-full bg-muted/20 text-foreground font-sans">
       {/* Main Multi-Column Footer */}
@@ -96,6 +98,7 @@ export const Footer: React.FC = () => {
                     <li key={link.label}>
                       <a
                         href={link.href}
+                        onClick={link.href === '#pricing' ? (e) => { e.preventDefault(); setPricingOpen(true) } : undefined}
                         className="text-xs text-foreground/80 hover:text-primary transition-colors font-medium"
                       >
                         {link.label}
@@ -174,6 +177,7 @@ export const Footer: React.FC = () => {
           </div>
         </div>
       </section>
+      <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />
     </footer>
   )
 }

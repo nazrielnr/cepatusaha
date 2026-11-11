@@ -7,3 +7,13 @@ api/handlers/
 api/lib/
 api/types/
 api/test/
+
+# Never upload local secrets / scratch artifacts
+.dev.vars*
+**/.dev.vars*
+.wrangler/
+**/.wrangler/
+scratch/
+tmp-*.mjs
+tmp-*.txt
+workers/node_modules/

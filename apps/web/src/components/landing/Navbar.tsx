@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Zap } from 'lucide-react'
 import { Button } from './Button'
 import { SignedIn, SignedOut } from '@clerk/clerk-react'
 import { UsageMenu } from '@/components/plan/UsageMenu'
+import { PricingModal } from './PricingModal'
 
 export const Navbar: React.FC = () => {
   const [scrolled, setScrolled] = useState(false)
+  const [pricingOpen, setPricingOpen] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -35,12 +36,11 @@ export const Navbar: React.FC = () => {
       >
         {/* LOGO AREA */}
         <div className="flex items-center gap-2.5 sm:gap-3 shrink-0 z-20">
-            <div className={`
-              flex items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-transform duration-500 w-8 h-8 sm:w-9 sm:h-9
-              ${scrolled ? 'scale-90' : 'scale-100'}
-            `}>
-                <Zap className="w-4 h-4 fill-current" />
-            </div>
+            <img
+              src="/logo.svg"
+              alt="Logo CepatUsaha"
+              className={`shrink-0 rounded-lg shadow-sm transition-transform duration-500 w-8 h-8 sm:w-9 sm:h-9 ${scrolled ? 'scale-90' : 'scale-100'}`}
+            />
 
             <div className={`
                 overflow-hidden transition-[max-width,opacity,transform] duration-500 [transition-timing-function:cubic-bezier(0.25,1,0.5,1)] origin-left
@@ -54,6 +54,10 @@ export const Navbar: React.FC = () => {
 
         {/* RIGHT ACTIONS */}
         <div className="flex items-center gap-2 shrink-0 z-20 ml-auto">
+            <button type="button" onClick={() => setPricingOpen(true)} className="text-sm font-medium text-muted-foreground hover:text-primary px-2 sm:px-3 py-2 transition-colors whitespace-nowrap cursor-pointer">
+              Harga
+            </button>
+
             {/* Signed Out State */}
             <SignedOut>
               <div className={`
@@ -93,6 +97,7 @@ export const Navbar: React.FC = () => {
             </SignedIn>
         </div>
       </nav>
+      <PricingModal isOpen={pricingOpen} onClose={() => setPricingOpen(false)} />
     </div>
   )
 }
